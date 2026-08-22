@@ -1,0 +1,85 @@
+name: CI
+
+# Ein Workflow, drei Stufen — in dieser Reihenfolge:
+#
+#   test           bei jedem PR und bei jedem Push auf main
+#   release-please nur auf main, erst nach grünen Tests: pflegt den Release-PR
+#                  (CHANGELOG + Versions-Bump); der Merge erzeugt das Release
+#   release-assets nur wenn dabei ein Release entstanden ist: hängt die
+#                  Binaries an
+#
+# Token für release-please: bevorzugt das Secret RELEASE_PLEASE_TOKEN (PAT) —
+# damit lösen Release-PRs auch die CI aus. Fallback ist GITHUB_TOKEN; der
+# braucht in der Organisation "Read and write permissions" für Workflows.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Lint, Tests, Referenz-Abgleich
+        run: make ci
+
+  release-please:
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  release-assets:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (exakt der Release-Tag)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Kein zweiter Testlauf: Derselbe Workflow-Run hat den Job `test` bereits
+      # bestanden, und release-please hängt über `needs` daran. Der Tag zeigt
+      # auf genau diesen Stand.
+      - name: Binaries bauen
+        run: make release-build VERSION=${{ needs.release-please.outputs.tag_name }}
+
+      - name: Checksums
+        run: cd dist && shasum -a 256 immojump-* > SHA256SUMS.txt
+
+      - name: Binaries ans Release hängen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ needs.release-please.outputs.tag_name }} dist/* --clobber
