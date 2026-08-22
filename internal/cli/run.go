@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -17,8 +18,31 @@ import (
 	"github.com/immoJUMP/immojump-cli/internal/output"
 )
 
-// Version wird beim Build per -ldflags gesetzt.
-var Version = "dev"
+// defaultVersion gilt, solange weder -ldflags noch die Build-Infos etwas
+// Brauchbares hergeben — etwa bei `go run ./cmd/immojump`.
+const defaultVersion = "dev"
+
+// Version wird beim Build per -ldflags gesetzt (siehe Makefile).
+var Version = defaultVersion
+
+// resolveVersion bestimmt die auszugebende Version.
+//
+// Nötig, weil `go install …@v0.1.0` — der im README dokumentierte Weg — keine
+// ldflags anwendet: Ohne diesen Fallback meldete jede so installierte Binary
+// "dev", und weder ein Fehlerbericht noch ein Agent konnte feststellen, welcher
+// Stand läuft. Go hinterlegt die Modulversion in den Build-Infos; nur der
+// Arbeitsbaum-Fall "(devel)" ist dort unbrauchbar.
+func resolveVersion(ldflagsVersion string, info *debug.BuildInfo, ok bool) string {
+	if ldflagsVersion != defaultVersion && ldflagsVersion != "" {
+		return ldflagsVersion
+	}
+	if ok && info != nil {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return defaultVersion
+}
 
 // Options injiziert die komplette Umgebung — damit laufen Tests parallel und
 // ohne echte Env-Variablen oder Konfigurationsdateien.
@@ -409,7 +433,8 @@ func (r *runner) outputOptions(flags *flagValues) output.Options {
 // printVersion ist die eine Stelle, an der die Version rausgeht — `version`
 // und `--version` sollen sich nie auseinanderentwickeln.
 func (r *runner) printVersion() int {
-	fmt.Fprintln(r.stdout, Version)
+	info, ok := debug.ReadBuildInfo()
+	fmt.Fprintln(r.stdout, resolveVersion(Version, info, ok))
 	return 0
 }
 
