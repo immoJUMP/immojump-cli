@@ -93,6 +93,22 @@ type FlagQuery struct {
 	Key  string
 }
 
+// QueryHint nennt einen Query-Parameter, den die Route tatsächlich auswertet
+// — nachgelesen in modules/routes/, nicht geraten.
+//
+// Das ist der Unterschied zwischen 125.598 und 3.002 Zeichen für dieselbe
+// Immobilienliste: `slim=true` plus `--fields id,name`. Ein Parameter, der
+// nur im Backend steht, existiert für einen Agenten nicht — deshalb steht er
+// deklarativ in der Spec und erscheint in --help, docs und schema.
+//
+// Was die Route NICHT liest, gehört hier nicht hin: `-q limit=3` lieferte
+// gegen die Produktion alle Objekte, weil die Route limit stillschweigend
+// ignoriert.
+type QueryHint struct {
+	Name    string
+	Summary string
+}
+
 // Spec ist ein Befehl — ein Datensatz, kein Code. Aus dieser Tabelle
 // entstehen Dispatch, Hilfe, REFERENCE.md und das JSON-Schema.
 type Spec struct {
@@ -105,9 +121,12 @@ type Spec struct {
 	Flags    []Flag
 	Body     []FlagBody
 	Query    []FlagQuery
-	Risk     Risk
-	Example  string
-	Special  string
+	// QueryHints sind die Parameter, die diese Route auswertet — sichtbar in
+	// Hilfe, Referenz und Schema, benutzbar über -q key=value.
+	QueryHints []QueryHint
+	Risk       Risk
+	Example    string
+	Special    string
 	// Local: kein HTTP-Aufruf (reine Konfigurationsbefehle, docs/schema/version).
 	Local bool
 	// Raw: Die Antwort ist möglicherweise kein JSON (z. B. YAML-Export).
@@ -276,8 +295,8 @@ var Resources = []ResourceInfo{
 	{"tags", "Tags und ihre Zuordnung zu Objekten"},
 	{"shares", "Freigabe-Links für Immobilien, Dokumente und Bilder"},
 	{"api", "Beliebigen /api/-Pfad aufrufen (Escape-Hatch)"},
-	{"docs", "Markdown-Referenz aller Befehle ausgeben"},
-	{"schema", "Befehls-Schema als JSON ausgeben"},
+	{"docs", "Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl"},
+	{"schema", "Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt"},
 	{"version", "Version ausgeben"},
 }
 
@@ -295,10 +314,16 @@ var GlobalFlags = []Flag{
 	{Name: "allow", Kind: FlagString, Desc: "Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW)"},
 	{Name: "idempotency-key", Kind: FlagString, Desc: "Wird als Idempotency-Key-Header mitgeschickt"},
 	{Name: "timeout", Kind: FlagString, Desc: "Timeout in Sekunden (Default 60)"},
+	{Name: "verbose", Kind: FlagBool, Desc: "Methode und aufgerufene URL vor dem Request auf stderr zeigen"},
 	{Name: "version", Kind: FlagBool, Desc: "Version ausgeben"},
 	{Name: "help", Kind: FlagBool, Desc: "Hilfe zur jeweiligen Ebene ausgeben"},
 	{Name: "h", Kind: FlagBool, Desc: "Kurzform von --help"},
 }
+
+// fullUserFlagDesc erklärt --full bei auth login und auth status. Beide
+// Befehle antworten sonst kompakt: Das vollständige Nutzerobjekt ist als
+// Anmeldebestätigung reine Kontextverschwendung.
+const fullUserFlagDesc = "Vollständige Antwort von /api/user/me ausgeben statt id/username plus Rolle"
 
 // idArg ist die häufigste Argument-Definition.
 func idArg(desc string) []Arg { return []Arg{{Name: "id", Desc: desc}} }
@@ -314,6 +339,7 @@ var Registry = []Spec{
 			{Name: "token", Kind: FlagString, Desc: "API-Token (Einstellungen → API-Zugang)"},
 			{Name: "token-env", Kind: FlagString, Desc: "Name der Env-Variablen mit dem Token (statt Klartext)"},
 			{Name: "organisation", Kind: FlagString, Desc: "Organisations-ID für diesen Context"},
+			{Name: "full", Kind: FlagBool, Desc: fullUserFlagDesc},
 		},
 		Example: "immojump auth login --context prod --base-url https://immojump.de --organisation <org-id> --token <token>",
 	},
@@ -321,6 +347,9 @@ var Registry = []Spec{
 		Resource: "auth", Verb: "status", Risk: RiskRead,
 		Summary: "Aufgelöste Konfiguration zeigen und gegen /api/user/me prüfen",
 		Method:  "GET", Path: "/api/user/me", Special: SpecialAuthStatus,
+		Flags: []Flag{
+			{Name: "full", Kind: FlagBool, Desc: fullUserFlagDesc},
+		},
 		Example: "immojump auth status",
 	},
 
@@ -352,7 +381,18 @@ var Registry = []Spec{
 	{
 		Resource: "contacts", Verb: "list", Risk: RiskRead,
 		Summary: "Kontakte auflisten", Method: "GET", Path: "/api/contacts",
-		Example: "immojump contacts list -q limit=25 --fields id,first_name,last_name",
+		QueryHints: []QueryHint{
+			{"slim", "true = ohne die Aktivitäten jedes Kontakts (deutlich kleiner und schneller)"},
+			{"q", "Freitext über Name, E-Mail, Telefon, Firma, Rolle, Adresse"},
+			{"page", "Seite (ab 1); erst damit kommt ein Envelope statt aller Treffer"},
+			{"per_page", "Treffer pro Seite (Default 50, max. 200)"},
+			{"sort", "last_name, first_name, email, created_at, updated_at, last_activity_at …"},
+			{"order", "asc (Default) oder desc"},
+			{"status_id", "nur diese Phase; none = Kontakte ohne Status"},
+			{"tag_ids", "Tag-IDs, kommagetrennt oder wiederholt"},
+			{"tag_match", "all (Default, alle Tags) oder any (mindestens einer)"},
+		},
+		Example: "immojump contacts list -q slim=true -q per_page=25 --fields id,first_name,last_name",
 	},
 	{
 		Resource: "contacts", Verb: "get", Risk: RiskRead,
@@ -400,12 +440,28 @@ var Registry = []Spec{
 	{
 		Resource: "immobilien", Verb: "list", Risk: RiskRead,
 		Summary: "Immobilien auflisten", Method: "GET", Path: "/api/v2/immobilien",
-		Example: "immojump immobilien list --fields id,name,type",
+		QueryHints: []QueryHint{
+			{"slim", "true = reduziertes Feldset; die stärkste Ersparnis überhaupt (wirkt nur ohne page)"},
+			{"page", "Seite (ab 1); liefert einen Envelope {items, pagination} — dann ohne slim"},
+			{"per_page", "Treffer pro Seite (Default 20)"},
+			{"sort", "created_at (Default), name, kaufpreis, wohnflaeche oder preis_pro_qm"},
+			{"order", "desc (Default) oder asc"},
+		},
+		Example: "immojump immobilien list -q slim=true --fields id,name",
 	},
 	{
 		Resource: "immobilien", Verb: "search", Risk: RiskRead,
 		Summary: "Immobilien suchen", Method: "GET", Path: "/api/v2/immobilien/search",
-		Example: "immojump immobilien search -q q=Köln",
+		QueryHints: []QueryHint{
+			{"search", "Suchbegriff über Name und Adresse (heißt hier search, nicht q)"},
+			{"tag_ids", "Tag-IDs, wiederholt angeben (?tag_ids=a&tag_ids=b); ODER-verknüpft"},
+			{"status_ids", "Phasen-IDs, wiederholt angeben; ODER-verknüpft"},
+			{"page", "Seite (Default 1); die Antwort ist immer {items, pagination}"},
+			{"per_page", "Treffer pro Seite (Default 20)"},
+			{"sort", "created_at (Default), name, kaufpreis, wohnflaeche oder preis_pro_qm"},
+			{"order", "desc (Default) oder asc"},
+		},
+		Example: "immojump immobilien search -q search=Köln --fields id,name",
 	},
 	{
 		Resource: "immobilien", Verb: "get", Risk: RiskRead,
@@ -481,7 +537,18 @@ var Registry = []Spec{
 	{
 		Resource: "activities", Verb: "list", Risk: RiskRead,
 		Summary: "Aktivitäten auflisten", Method: "GET", Path: "/api/activities/activities",
-		Example: "immojump activities list -q status=offen",
+		QueryHints: []QueryHint{
+			{"q", "Freitext über Titel, Beschreibung, Typ, Status, Priorität"},
+			{"type", "ANRUF, BESICHTIGUNG, BRIEF, E-MAIL, MEETING, NOTIZ, SONSTIGES (mehrere kommagetrennt)"},
+			{"status", "Geplant, In Bearbeitung, Abgeschlossen, Abgebrochen (mehrere kommagetrennt)"},
+			{"priority", "Hoch, Mittel, Niedrig, NA (mehrere kommagetrennt)"},
+			{"immobilie", "nur Aktivitäten dieser Immobilie (der Parameter heißt immobilie)"},
+			{"overdue", "true = offene Aktivitäten, deren Fälligkeit vorbei ist"},
+			{"due", "today oder week — Fälligkeitsfenster, nur offene Aktivitäten"},
+			{"page", "Seite (ab 1); erst damit kommt ein Envelope statt aller Treffer"},
+			{"per_page", "Treffer pro Seite (Default 25, max. 200)"},
+		},
+		Example: "immojump activities list -q overdue=true --fields id,title,scheduled_end",
 	},
 	{
 		Resource: "activities", Verb: "get", Risk: RiskRead,
@@ -576,7 +643,10 @@ var Registry = []Spec{
 	{
 		Resource: "statuses", Verb: "list", Risk: RiskRead,
 		Summary: "Alle Phasen auflisten", Method: "GET", Path: "/api/statuses/statuses",
-		Example: "immojump statuses list",
+		QueryHints: []QueryHint{
+			{"lite", "true = ohne die Aktivitäts-Vorlagen jeder Phase (deutlich kleiner)"},
+		},
+		Example: "immojump statuses list -q lite=true --fields id,name",
 	},
 	{
 		Resource: "statuses", Verb: "update", Risk: RiskWrite,
@@ -685,6 +755,9 @@ var Registry = []Spec{
 	{
 		Resource: "documents", Verb: "list", Risk: RiskRead,
 		Summary: "Dokumente auflisten", Method: "GET", Path: "/api/documents/documents",
+		QueryHints: []QueryHint{
+			{"immobilien_id", "Pflicht — die Route listet immer die Dokumente genau einer Immobilie"},
+		},
 		Example: "immojump documents list -q immobilien_id=5 --fields id,dateiname",
 	},
 	{
@@ -739,13 +812,21 @@ var Registry = []Spec{
 	{
 		Resource: "documents", Verb: "analysis-results", Risk: RiskRead,
 		Summary: "Analyse-Ergebnisse abrufen", Method: "GET", Path: "/api/documents/analysis-results",
-		Example: "immojump documents analysis-results -q immobilien_id=5",
+		QueryHints: []QueryHint{
+			{"immobilien_id", "nur Ergebnisse zu dieser Immobilie"},
+			{"document_id", "nur Ergebnisse zu diesem Dokument"},
+			{"limit", "Anzahl der Ergebnisse (Default 50)"},
+		},
+		Example: "immojump documents analysis-results -q immobilien_id=5 -q limit=5",
 	},
 
 	// --- tags -------------------------------------------------------------
 	{
 		Resource: "tags", Verb: "list", Risk: RiskRead,
 		Summary: "Tags der Organisation auflisten", Method: "GET", Path: "/api/{org}/tags",
+		QueryHints: []QueryHint{
+			{"for", "nur Tags dieser Objektart, z. B. contact oder immobilie"},
+		},
 		Example: "immojump tags list -q for=contact",
 	},
 	{
@@ -877,12 +958,19 @@ var Registry = []Spec{
 			{Name: "method", Desc: "HTTP-Methode, z. B. GET oder POST"},
 			{Name: "pfad", Desc: "Pfad ab /api/, z. B. /api/deals"},
 		},
-		Example: "immojump api GET /api/deals -q status=offen",
+		// status_ids ist der Parameter, den die Deals-Route wirklich liest
+		// (modules/routes/deal_routes.py) — ein Beispiel, das stillschweigend
+		// nichts filtert, wäre schlimmer als gar keins.
+		Example: "immojump api GET /api/deals -q status_ids=7",
 	},
 	{
 		Resource: "docs", Risk: RiskRead, Local: true, Special: SpecialDocs,
-		Summary: "Markdown-Referenz aller Befehle nach stdout schreiben",
-		Example: "immojump docs > REFERENCE.md",
+		Summary: "Markdown-Referenz nach stdout schreiben — komplett oder als Ausschnitt",
+		Args: []Arg{
+			{Name: "resource", Desc: "Nur diese Ressource ausgeben", Optional: true},
+			{Name: "verb", Desc: "Nur diesen Befehl ausgeben", Optional: true},
+		},
+		Example: "immojump docs shares create",
 	},
 	{
 		Resource: "schema", Risk: RiskRead, Local: true, Special: SpecialSchema,

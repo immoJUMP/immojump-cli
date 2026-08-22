@@ -54,6 +54,11 @@ type Resolved struct {
 	Org         string
 	Token       string
 	ContextName string
+	// TokenSource sagt, woher das Token stammt: "env:IMMOJUMP_TOKEN",
+	// "env:<name>" (die token_env-Indirektion des Contexts) oder "context".
+	// "Warum nimmt der Aufruf ein anderes Token?" ist die häufigste
+	// Diagnosefrage — die Antwort gehört in die Auflösung.
+	TokenSource string
 }
 
 // getenv macht eine fehlende env-Funktion unschädlich.
@@ -114,13 +119,32 @@ func Resolve(file *File, ov Overrides, env func(string) string) (Resolved, error
 		ctx = found
 	}
 
+	token, source := resolveToken(ctx, e)
 	res := Resolved{
 		ContextName: name,
 		BaseURL:     NormalizeBaseURL(FirstNonEmpty(ov.BaseURL, e(EnvBaseURL), ctx.BaseURL, DefaultBaseURL)),
 		Org:         FirstNonEmpty(ov.Org, e(EnvOrg), ctx.OrganisationID),
-		Token:       FirstNonEmpty(e(EnvToken), ContextToken(ctx, e)),
+		Token:       token,
+		TokenSource: source,
 	}
 	return res, nil
+}
+
+// resolveToken liefert Token und Herkunft in derselben Reihenfolge wie die
+// übrige Auflösungskette: Umgebung vor Context-Datei.
+func resolveToken(ctx Context, e func(string) string) (string, string) {
+	if token := e(EnvToken); token != "" {
+		return token, "env:" + EnvToken
+	}
+	if ctx.TokenEnv != "" {
+		if token := e(ctx.TokenEnv); token != "" {
+			return token, "env:" + ctx.TokenEnv
+		}
+	}
+	if ctx.Token != "" {
+		return ctx.Token, "context"
+	}
+	return "", ""
 }
 
 // ContextToken löst die token_env-Indirektion auf und fällt auf token zurück.

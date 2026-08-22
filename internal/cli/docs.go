@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/immoJUMP/immojump-cli/internal/config"
+	"github.com/immoJUMP/immojump-cli/internal/output"
 )
 
 // ExitCode dokumentiert einen stabilen Exit-Code (siehe doc/DESIGN.md).
@@ -61,6 +62,11 @@ type schemaArg struct {
 	Optional    bool   `json:"optional,omitempty"`
 }
 
+type schemaQueryHint struct {
+	Name    string `json:"name"`
+	Summary string `json:"summary"`
+}
+
 type schemaCommand struct {
 	Resource string `json:"resource"`
 	Verb     string `json:"verb"`
@@ -76,7 +82,9 @@ type schemaCommand struct {
 	Raw      bool         `json:"raw,omitempty"`
 	Args     []schemaArg  `json:"args"`
 	Flags    []schemaFlag `json:"flags"`
-	Example  string       `json:"example"`
+	// QueryHints sind die Parameter, die die Route auswertet (per -q).
+	QueryHints []schemaQueryHint `json:"query_hints,omitempty"`
+	Example    string            `json:"example"`
 }
 
 func toSchemaCommand(spec Spec) schemaCommand {
@@ -90,39 +98,65 @@ func toSchemaCommand(spec Spec) schemaCommand {
 			Name: flag.Name, Kind: string(flag.Kind), Description: flag.Desc, Required: flag.Required,
 		})
 	}
+	// Bewusst nil statt leerer Slice: Befehle ohne Query-Parameter sollen das
+	// Schema nicht um ein leeres Feld verlängern (omitempty).
+	var hints []schemaQueryHint
+	for _, hint := range spec.QueryHints {
+		hints = append(hints, schemaQueryHint{Name: hint.Name, Summary: hint.Summary})
+	}
 	return schemaCommand{
-		Resource: spec.Resource,
-		Verb:     spec.Verb,
-		Summary:  spec.Summary,
-		Risk:     spec.RiskLabel(),
-		RiskRule: spec.RiskRule(),
-		Method:   spec.Method,
-		Path:     spec.Path,
-		Endpoint: spec.Endpoint(),
-		Local:    spec.Local,
-		Raw:      spec.Raw,
-		Args:     args,
-		Flags:    flags,
-		Example:  spec.Example,
+		Resource:   spec.Resource,
+		Verb:       spec.Verb,
+		Summary:    spec.Summary,
+		Risk:       spec.RiskLabel(),
+		RiskRule:   spec.RiskRule(),
+		Method:     spec.Method,
+		Path:       spec.Path,
+		Endpoint:   spec.Endpoint(),
+		Local:      spec.Local,
+		Raw:        spec.Raw,
+		Args:       args,
+		Flags:      flags,
+		QueryHints: hints,
+		Example:    spec.Example,
 	}
 }
 
+// selectSpecs schränkt Registry auf [resource [verb]] ein — dieselbe Logik
+// (und dieselben Meldungen) für schema und docs.
+func selectSpecs(args []string) ([]Spec, string, error) {
+	if len(args) == 0 {
+		return Registry, "", nil
+	}
+	filtered := specsForResource(args[0])
+	if len(filtered) == 0 {
+		return nil, "", usageErr("Unbekannte Ressource %q.%s", args[0], suggestion(args[0], resourceNames()))
+	}
+	if len(args) > 1 {
+		spec, ok := Lookup(args[0], args[1])
+		if !ok {
+			return nil, "", usageErr("Unbekannter Befehl %q für %q.%s",
+				args[1], args[0], suggestion(args[1], verbNames(filtered)))
+		}
+		return []Spec{spec}, spec.Name(), nil
+	}
+	return filtered, args[0], nil
+}
+
+// hintScopedForm nennt die gezielte Form, sobald jemand alles auf einmal
+// zieht. Auf stderr — `immojump docs > REFERENCE.md` bleibt sauber.
+func (r *runner) hintScopedForm(command string) {
+	_ = output.WriteWarning(r.stderr, fmt.Sprintf(
+		"Kompletter Dump. Gezielt und deutlich kleiner: immojump %s <ressource> [befehl].", command), nil)
+}
+
 func (r *runner) runSchema(args []string, flags *flagValues) int {
-	specs := Registry
-	if len(args) > 0 {
-		filtered := specsForResource(args[0])
-		if len(filtered) == 0 {
-			return r.fail(usageErr("Unbekannte Ressource %q.%s", args[0], suggestion(args[0], resourceNames())))
-		}
-		if len(args) > 1 {
-			spec, ok := Lookup(args[0], args[1])
-			if !ok {
-				return r.fail(usageErr("Unbekannter Befehl %q für %q.%s",
-					args[1], args[0], suggestion(args[1], verbNames(filtered))))
-			}
-			filtered = []Spec{spec}
-		}
-		specs = filtered
+	specs, scope, err := selectSpecs(args)
+	if err != nil {
+		return r.fail(err)
+	}
+	if scope == "" {
+		r.hintScopedForm("schema")
 	}
 
 	commands := []schemaCommand{}
@@ -149,7 +183,16 @@ func (r *runner) runSchema(args []string, flags *flagValues) int {
 
 // --- docs -----------------------------------------------------------------
 
-func (r *runner) runDocs() int {
+func (r *runner) runDocs(args []string) int {
+	specs, scope, err := selectSpecs(args)
+	if err != nil {
+		return r.fail(err)
+	}
+	if scope != "" {
+		return r.runScopedDocs(specs, scope)
+	}
+	r.hintScopedForm("docs")
+
 	out := &strings.Builder{}
 
 	out.WriteString("# immojump — Befehlsreferenz\n\n")
@@ -227,6 +270,21 @@ func (r *runner) runDocs() int {
 	return 0
 }
 
+// runScopedDocs schreibt nur die angefragten Befehle. Die allgemeinen Kapitel
+// (Flags, Umgebung, Risk, Exit-Codes) bleiben weg — sie machen den Großteil
+// der Vollreferenz aus und stehen einen Aufruf entfernt.
+func (r *runner) runScopedDocs(specs []Spec, scope string) int {
+	out := &strings.Builder{}
+	fmt.Fprintf(out, "# immojump %s — Befehlsreferenz\n\n", scope)
+	out.WriteString("Ausschnitt aus `immojump docs`. Vollständig (inkl. globaler Flags,\n")
+	out.WriteString("Umgebungsvariablen, Risk-Level und Exit-Codes): `immojump docs`.\n")
+	for _, spec := range specs {
+		writeCommandSection(out, spec)
+	}
+	fmt.Fprint(r.stdout, out.String())
+	return 0
+}
+
 func writeCommandSection(out *strings.Builder, spec Spec) {
 	fmt.Fprintf(out, "\n#### %s\n\n%s\n\n", spec.Name(), spec.Summary)
 	fmt.Fprintf(out, "- **Aufruf:** `%s`\n", spec.Usage())
@@ -253,6 +311,12 @@ func writeCommandSection(out *strings.Builder, spec Spec) {
 				prefix = "(Pflicht) "
 			}
 			fmt.Fprintf(out, "  - `%s` — %s%s\n", flagUsage(flag), prefix, flag.Desc)
+		}
+	}
+	if len(spec.QueryHints) > 0 {
+		out.WriteString("- **Bekannte Query-Parameter** (per `-q key=value`):\n")
+		for _, hint := range spec.QueryHints {
+			fmt.Fprintf(out, "  - `%s` — %s\n", hint.Name, hint.Summary)
 		}
 	}
 	if hint := bodyHint(spec); hint != "" {

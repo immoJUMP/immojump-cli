@@ -72,6 +72,52 @@ func TestResolveTokenEnvFallsBackToPlainToken(t *testing.T) {
 	}
 }
 
+// TestResolveReportsTokenSource: "Warum nimmt der Aufruf ein anderes Token?"
+// ist die häufigste Diagnosefrage — die Antwort gehört in die Auflösung,
+// nicht in ein Rätsel.
+func TestResolveReportsTokenSource(t *testing.T) {
+	cases := []struct {
+		name string
+		file *File
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "Umgebungsvariable schlägt alles",
+			file: &File{CurrentContext: "p", Contexts: map[string]Context{"p": {Token: "tok-datei"}}},
+			env:  map[string]string{"IMMOJUMP_TOKEN": "tok-env"},
+			want: "env:IMMOJUMP_TOKEN",
+		},
+		{
+			name: "token_env des Contexts",
+			file: &File{CurrentContext: "p", Contexts: map[string]Context{"p": {TokenEnv: "MY_TOKEN"}}},
+			env:  map[string]string{"MY_TOKEN": "tok-indirekt"},
+			want: "env:MY_TOKEN",
+		},
+		{
+			name: "Klartext im Context",
+			file: &File{CurrentContext: "p", Contexts: map[string]Context{"p": {Token: "tok-datei"}}},
+			want: "context",
+		},
+		{
+			name: "gar kein Token",
+			file: &File{},
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Resolve(tc.file, Overrides{}, envMap(tc.env))
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if res.TokenSource != tc.want {
+				t.Errorf("TokenSource %q erwartet, got %q", tc.want, res.TokenSource)
+			}
+		})
+	}
+}
+
 func TestResolvePrecedenceFlagOverEnvOverFile(t *testing.T) {
 	file := &File{
 		CurrentContext: "prod",

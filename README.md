@@ -20,7 +20,12 @@ immojump --help                 # 16 Ressourcen, eine Bildschirmseite
 immojump shares --help          # die vier Befehle dieser Ressource
 immojump shares create --help   # Argumente, Flags, Risk-Level, Beispiel
 immojump schema shares create   # dasselbe als JSON für Tooling
+immojump docs shares create     # dasselbe als Markdown-Ausschnitt
 ```
+
+`schema` und `docs` nehmen beide `[ressource [befehl]]`. Ohne Angabe kommt der
+komplette Dump (28 KB bzw. 38 KB), mit Angabe der Ausschnitt (~2 KB) — deshalb
+weisen beide auf stderr auf die gezielte Form hin.
 
 Beide Wege bleiben gültig: Der MCP-Server ist die richtige Wahl, wenn ein Agent
 dauerhaft mit immoJUMP arbeitet und Tool-Calls braucht. Das CLI ist die richtige
@@ -61,9 +66,16 @@ immojump auth login \
   --token <api-token>
 
 immojump auth status            # aufgelöste Konfiguration, Token maskiert
+immojump auth status --full     # dazu die komplette Antwort von /api/user/me
 immojump context list           # alle Contexts
 immojump context use beta       # Instanz/Organisation wechseln
 ```
+
+`auth login` und `auth status` antworten kompakt: Context, Instanz,
+Organisation, maskiertes Token, Herkunft des Tokens, `user` mit `id` und
+`username` sowie die eigene Rolle in der aktiven Organisation. Das vollständige
+Nutzerobjekt (Abo-Daten, Login-Zähler, alle Organisationen) gibt es auf Wunsch
+mit `--full`.
 
 `auth login` prüft die Angaben gegen `GET /api/user/me` und speichert erst nach
 erfolgreicher Prüfung. Wer das Token nicht im Klartext ablegen will, verweist
@@ -91,11 +103,11 @@ Globale Flags dürfen vor oder nach dem Befehl stehen.
 
 ```bash
 # Lesen, auf wenige Felder projiziert — spart Kontext im Agenten
-immojump immobilien list --fields id,name,type
+immojump immobilien list -q slim=true --fields id,name
 immojump contacts get 42 --pretty
 
-# Query-Parameter
-immojump immobilien search -q q=Köln -q limit=10
+# Query-Parameter — welche eine Route auswertet, steht in ihrer Hilfe
+immojump immobilien search -q search=Köln -q per_page=10
 
 # Schreiben: einzelne Felder …
 immojump contacts create --set first_name=Ada --set last_name=Lovelace
@@ -105,7 +117,7 @@ immojump immobilien create --body @neubau.json
 echo '{"name":"MFH Köln"}' | immojump immobilien create --body -
 
 # Escape-Hatch für alles ohne kuratierten Befehl
-immojump api GET /api/deals -q status=offen
+immojump api GET /api/deals -q status_ids=7
 ```
 
 `--set` interpretiert den Wert als JSON-Literal, sonst als String:
@@ -122,6 +134,50 @@ Backend-Schemas geprüft.
 Nutzdaten gehen nach **stdout**, Fehler als eine JSON-Zeile nach **stderr**.
 Antworten, die kein JSON sind (z. B. `pipelines export`), werden roh
 durchgereicht.
+
+## Kontext sparen
+
+Zwei Schalter entscheiden darüber, ob eine Antwort ein Absatz oder ein halber
+Kontext ist. Gemessen an 24 echten Immobilien in der Produktion:
+
+| Aufruf                                                  | Zeichen |
+| ------------------------------------------------------- | ------: |
+| `immojump immobilien list`                              | 125.598 |
+| `immojump immobilien list -q slim=true`                 |  19.604 |
+| `immojump immobilien list -q slim=true --fields id,name` |   3.002 |
+
+Faktor 42 — für dieselbe Frage.
+
+- **`-q slim=true`** lässt das Backend ein reduziertes Feldset dumpen. Es gibt
+  ihn bei `immobilien list` und `contacts list`; `statuses list` heißt das
+  Gegenstück `-q lite=true`.
+- **`--fields id,name`** projiziert danach auf die Felder, die wirklich
+  gebraucht werden — auch verschachtelt (`--fields id,adresse.stadt`).
+
+Welche Query-Parameter eine Route **tatsächlich** auswertet, steht unter
+„Bekannte Query-Parameter" in `immojump <ressource> <befehl> --help`, in
+[`REFERENCE.md`](REFERENCE.md) und im Schema (`query_hints`). Das ist keine
+Kosmetik: `-q limit=3` etwa wird von `immobilien list` stillschweigend ignoriert
+— begrenzt wird dort mit `-q page=1 -q per_page=3`.
+
+Zwei Fallstricke, die das Backend nicht meldet:
+
+- `slim` wirkt bei `immobilien list` **nur ohne** `page`. Sobald paginiert wird,
+  kommt wieder das volle Feldset.
+- Der Suchparameter heißt nicht überall gleich: `immobilien search` liest
+  `search`, `contacts list` und `activities list` lesen `q`.
+
+Zeigt `--fields` ins Leere, sagt das CLI das auf stderr — mit den
+Top-Level-Schlüsseln, die es stattdessen gibt. Verpackte Antworten
+(`{"contact":{…},"success":true}`) brauchen `--fields contact.id`:
+
+```console
+$ immojump contacts create --set first_name=Ada --fields id,first_name
+{}
+{"warning":true,"message":"--fields hat nichts getroffen: … Vorhandene Top-Level-Schlüssel: contact, success. …","fields_missing":["id","first_name"],"top_level_keys":["contact","success"]}
+```
+
+Der Exit-Code bleibt dabei `0` — es ist ein Hinweis, kein Fehler.
 
 ## Für Agenten
 
@@ -144,8 +200,10 @@ zusammenfassen, der Ende September abläuft, und ihn direkt verschicken:
 
 ```bash
 # 1. Die Immobilie und ihre Dokumente finden
-IMMO=$(immojump immobilien search -q q="Hauptstraße 12" --fields id \
-       | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+# search antwortet als Envelope {items, pagination} — die Treffer stehen
+# unter items, nicht auf oberster Ebene.
+IMMO=$(immojump immobilien search -q search="Hauptstraße 12" \
+       | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["id"])')
 
 immojump documents list -q immobilien_id=$IMMO --fields id,dateiname
 
@@ -262,11 +320,41 @@ Exit 8 ist eine Zusage: 5xx, Netzwerkabbruch, Timeout — ein Retry kann helfen.
 Lokale Fehler (kaputtes stdout, volle Platte) enden mit Exit 1, weil ein Retry
 daran nichts ändert.
 
-Die Fehlerzeile auf stderr sieht immer gleich aus; `message` kommt unverändert
+Die Fehlerzeile auf stderr beginnt immer gleich; `message` kommt unverändert
 vom Backend:
 
 ```json
 {"error":true,"status":403,"message":"Kein Zugriff auf diese Organisation","code":"ORG_FORBIDDEN"}
+```
+
+**Danach folgt jedes weitere Feld, das die Antwort mitbringt** — und genau darin
+steht meistens die Lösung. Ein falscher Enum-Wert kostet so keinen zweiten
+Rateversuch:
+
+```console
+$ immojump activities create --set title=Test --set type=task
+{"error":true,"status":400,"message":"Validierungsfehler.","errors":{"type":["Invalid enum value task"]},"valid_values":{"type":["ANRUF","BESICHTIGUNG","BRIEF","E-MAIL","MEETING","NOTIZ","SONSTIGES"]}}
+```
+
+Dasselbe gilt für `errors: {"contact_id": ["Unknown field."]}` bei einem
+falschen Feldnamen und für den Kontingentstand einer 402-Antwort. Die vier
+CLI-eigenen Schlüssel (`error`, `status`, `message`, `code`) behalten ihre
+Bedeutung; kollidiert ein Backend-Feld mit `error` oder `status`, steht es
+daneben als `backend_error` bzw. `backend_status` — verloren geht nichts.
+
+Antworten, die kein JSON sind, werden nicht mehr als HTML-Wüste durchgereicht:
+
+```json
+{"error":true,"status":404,"message":"HTTP 404 Not Found — die Route existiert auf dieser Instanz nicht oder erlaubt diese Methode nicht (Antwort war kein JSON)","raw":"404 Not Found Not Found The requested URL was not found on the server."}
+```
+
+Ob das CLI den falschen Pfad gebaut hat oder die Route auf der Instanz fehlt,
+klärt `--verbose`. Es schreibt Methode und vollständige URL vor dem Request
+nach stderr — ohne Token, der steht im Header:
+
+```console
+$ immojump immobilien list -q slim=true --verbose
+{"trace":true,"method":"GET","url":"https://immojump.de/api/v2/immobilien?slim=true"}
 ```
 
 ## Weiterlesen

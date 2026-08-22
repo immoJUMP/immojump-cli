@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/immoJUMP/immojump-cli/internal/api"
@@ -16,7 +15,7 @@ func (r *runner) emit(value any, flags *flagValues) int {
 	if err != nil {
 		return r.fail(usageErr("Ausgabe nicht serialisierbar: %v", err))
 	}
-	if err := output.Render(r.stdout, raw, "application/json", r.outputOptions(flags)); err != nil {
+	if err := r.render(raw, "application/json", flags); err != nil {
 		return r.fail(err)
 	}
 	return 0
@@ -98,8 +97,6 @@ func (r *runner) runAuthLogin(spec Spec, flags *flagValues) int {
 		return r.fail(configErr("%s", err.Error()))
 	}
 
-	var user any
-	_ = json.Unmarshal(response.Body, &user)
 	result := map[string]any{
 		"context":         name,
 		"config":          path,
@@ -107,9 +104,63 @@ func (r *runner) runAuthLogin(spec Spec, flags *flagValues) int {
 		"organisation_id": ctx.OrganisationID,
 		"token":           config.MaskToken(token),
 		"token_source":    tokenSource(ctx, tokenFromEnv),
-		"user":            user,
 	}
+	addUser(result, response.Body, ctx.OrganisationID, flags)
 	return r.emit(result, flags)
+}
+
+// addUser hängt die Nutzerdaten an die Anmeldebestätigung — standardmäßig nur
+// id und username plus die Rolle in der aktiven Organisation.
+//
+// Das komplette /api/user/me-Objekt (Abo-Daten, Login-Zähler, alle
+// Organisationen) sind ~1.400 Zeichen für eine Anmeldebestätigung — und das
+// im Befehl, den jeder Agent als Erstes ausführt. Wer alles braucht, sagt
+// --full.
+func addUser(result map[string]any, body []byte, org string, flags *flagValues) {
+	var user any
+	if err := decodeJSONExact(body, &user); err != nil {
+		return
+	}
+	if flags.bool("full") {
+		result["user"] = user
+		return
+	}
+	payload, ok := user.(map[string]any)
+	if !ok {
+		result["user"] = user
+		return
+	}
+	compact := map[string]any{}
+	for _, key := range []string{"id", "username"} {
+		if value, ok := payload[key]; ok {
+			compact[key] = value
+		}
+	}
+	result["user"] = compact
+	if role := organisationRole(payload, org); role != "" {
+		result["organisation_role"] = role
+	}
+}
+
+// organisationRole sucht die Mitgliedsrolle in der aktiven Organisation.
+// Ohne Treffer wird keine erfunden.
+func organisationRole(payload map[string]any, org string) string {
+	if org == "" {
+		return ""
+	}
+	entries, _ := payload["organisation_access"].([]any)
+	for _, entry := range entries {
+		item, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if id, _ := item["organisationId"].(string); id != org {
+			continue
+		}
+		role, _ := item["membershipRole"].(string)
+		return role
+	}
+	return ""
 }
 
 func tokenSource(ctx config.Context, fromEnv bool) string {
@@ -139,16 +190,16 @@ func (r *runner) runAuthStatus(spec Spec, resolved config.Resolved, flags *flagV
 	if err != nil {
 		return r.fail(err)
 	}
-	var user any
-	_ = json.Unmarshal(response.Body, &user)
-	return r.emit(map[string]any{
+	result := map[string]any{
 		"context":         resolved.ContextName,
 		"config":          config.Path(r.getenv),
 		"base_url":        resolved.BaseURL,
 		"organisation_id": resolved.Org,
 		"token":           config.MaskToken(resolved.Token),
-		"user":            user,
-	}, flags)
+		"token_source":    resolved.TokenSource,
+	}
+	addUser(result, response.Body, resolved.Org, flags)
+	return r.emit(result, flags)
 }
 
 // runContext bedient die rein lokalen Context-Befehle.

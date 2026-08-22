@@ -122,6 +122,96 @@ func TestDocsRendersMarkdownForEveryCommand(t *testing.T) {
 	}
 }
 
+// TestDocsFilters: `schema` kann seit jeher einen Ausschnitt liefern, `docs`
+// dumpte immer alles. Für ein Werkzeug, dessen Verkaufsargument
+// Kontext-Ökonomie ist, war das die teuerste Inkonsistenz.
+func TestDocsFilters(t *testing.T) {
+	h := newHarness(t)
+	_, full, _ := h.run("docs")
+
+	code, scoped, stderr := h.run("docs", "shares")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	if !strings.HasPrefix(scoped, "# ") {
+		t.Errorf("Markdown-Überschrift erwartet, got %q", scoped[:min(40, len(scoped))])
+	}
+	for _, want := range []string{"shares create", "shares revoke", "--immobilie"} {
+		if !strings.Contains(scoped, want) {
+			t.Errorf("Ausschnitt soll %q dokumentieren:\n%s", want, scoped)
+		}
+	}
+	if strings.Contains(scoped, "contacts create") {
+		t.Error("der Ausschnitt soll nur shares zeigen")
+	}
+	if len(scoped) >= len(full) {
+		t.Errorf("Ausschnitt soll kürzer sein als die Vollreferenz (%d vs. %d)", len(scoped), len(full))
+	}
+
+	code, one, _ := h.run("docs", "shares", "create")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d", code)
+	}
+	if !strings.Contains(one, "shares create") {
+		t.Errorf("shares create erwartet:\n%s", one)
+	}
+	if strings.Contains(one, "shares revoke") {
+		t.Errorf("nur den einen Befehl erwartet:\n%s", one)
+	}
+	if len(one) >= len(scoped) {
+		t.Errorf("ein Befehl soll kürzer sein als die ganze Ressource (%d vs. %d)", len(one), len(scoped))
+	}
+}
+
+func TestDocsUnknownScopeExitsWith2(t *testing.T) {
+	h := newHarness(t)
+	for _, args := range [][]string{{"docs", "gibtsnicht"}, {"docs", "shares", "gibtsnicht"}} {
+		code, stdout, stderr := h.run(args...)
+		if code != 2 {
+			t.Errorf("%v: Exit 2 erwartet, got %d", args, code)
+		}
+		if stdout != "" {
+			t.Errorf("%v: kein stdout bei Bedienfehlern erwartet, got %q", args, stdout)
+		}
+		if errorLine(t, stderr)["message"] == "" {
+			t.Errorf("%v: erklärende Meldung erwartet", args)
+		}
+	}
+}
+
+// TestUnscopedDumpsHintAtTheCheapForm: Der volle Dump ist teuer — wer ihn
+// zieht, soll wenigstens erfahren, dass es die gezielte Form gibt. Auf
+// stderr, damit `immojump docs > REFERENCE.md` sauber bleibt.
+func TestUnscopedDumpsHintAtTheCheapForm(t *testing.T) {
+	for _, command := range []string{"docs", "schema"} {
+		h := newHarness(t)
+		code, stdout, stderr := h.run(command)
+		if code != 0 {
+			t.Fatalf("%s: Exit 0 erwartet, got %d", command, code)
+		}
+		if strings.Contains(stdout, "Hinweis") || strings.Contains(stdout, "hinweis") {
+			t.Errorf("%s: stdout bleibt frei von Hinweisen", command)
+		}
+		line := stderrLines(t, stderr)
+		if len(line) != 1 || line[0]["warning"] != true {
+			t.Fatalf("%s: eine Hinweiszeile erwartet, got %q", command, stderr)
+		}
+		message, _ := line[0]["message"].(string)
+		if !strings.Contains(message, "immojump "+command+" <ressource>") {
+			t.Errorf("%s: der Hinweis soll die gezielte Form nennen, got %q", command, message)
+		}
+	}
+}
+
+func TestScopedDumpsStayQuiet(t *testing.T) {
+	h := newHarness(t)
+	for _, args := range [][]string{{"docs", "shares"}, {"schema", "shares"}, {"schema", "shares", "create"}} {
+		if _, _, stderr := h.run(args...); stderr != "" {
+			t.Errorf("%v: kein Hinweis nötig, got %q", args, stderr)
+		}
+	}
+}
+
 func TestSchemaIsValidJSON(t *testing.T) {
 	h := newHarness(t)
 	code, stdout, stderr := h.run("schema")

@@ -21,8 +21,8 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `tags` | Tags und ihre Zuordnung zu Objekten |
 | `shares` | Freigabe-Links für Immobilien, Dokumente und Bilder |
 | `api` | Beliebigen /api/-Pfad aufrufen (Escape-Hatch) |
-| `docs` | Markdown-Referenz aller Befehle ausgeben |
-| `schema` | Befehls-Schema als JSON ausgeben |
+| `docs` | Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl |
+| `schema` | Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt |
 | `version` | Version ausgeben |
 
 ## Globale Flags
@@ -41,6 +41,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `--allow <wert>` | Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW) |
 | `--idempotency-key <wert>` | Wird als Idempotency-Key-Header mitgeschickt |
 | `--timeout <wert>` | Timeout in Sekunden (Default 60) |
+| `--verbose` | Methode und aufgerufene URL vor dem Request auf stderr zeigen |
 | `--version` | Version ausgeben |
 | `--help` | Hilfe zur jeweiligen Ebene ausgeben |
 
@@ -120,6 +121,7 @@ Context anlegen oder aktualisieren und gegen die Instanz prüfen
   - `--token <wert>` — API-Token (Einstellungen → API-Zugang)
   - `--token-env <wert>` — Name der Env-Variablen mit dem Token (statt Klartext)
   - `--organisation <wert>` — Organisations-ID für diesen Context
+  - `--full` — Vollständige Antwort von /api/user/me ausgeben statt id/username plus Rolle
 - **Beispiel:** `immojump auth login --context prod --base-url https://immojump.de --organisation <org-id> --token <token>`
 
 #### auth status
@@ -129,6 +131,8 @@ Aufgelöste Konfiguration zeigen und gegen /api/user/me prüfen
 - **Aufruf:** `immojump auth status`
 - **Endpoint:** `GET /api/user/me`
 - **Risk:** `read`
+- **Flags:**
+  - `--full` — Vollständige Antwort von /api/user/me ausgeben statt id/username plus Rolle
 - **Beispiel:** `immojump auth status`
 
 ### context
@@ -204,7 +208,17 @@ Kontakte auflisten
 - **Aufruf:** `immojump contacts list`
 - **Endpoint:** `GET /api/contacts`
 - **Risk:** `read`
-- **Beispiel:** `immojump contacts list -q limit=25 --fields id,first_name,last_name`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `slim` — true = ohne die Aktivitäten jedes Kontakts (deutlich kleiner und schneller)
+  - `q` — Freitext über Name, E-Mail, Telefon, Firma, Rolle, Adresse
+  - `page` — Seite (ab 1); erst damit kommt ein Envelope statt aller Treffer
+  - `per_page` — Treffer pro Seite (Default 50, max. 200)
+  - `sort` — last_name, first_name, email, created_at, updated_at, last_activity_at …
+  - `order` — asc (Default) oder desc
+  - `status_id` — nur diese Phase; none = Kontakte ohne Status
+  - `tag_ids` — Tag-IDs, kommagetrennt oder wiederholt
+  - `tag_match` — all (Default, alle Tags) oder any (mindestens einer)
+- **Beispiel:** `immojump contacts list -q slim=true -q per_page=25 --fields id,first_name,last_name`
 
 #### contacts get
 
@@ -307,7 +321,13 @@ Immobilien auflisten
 - **Aufruf:** `immojump immobilien list`
 - **Endpoint:** `GET /api/v2/immobilien`
 - **Risk:** `read`
-- **Beispiel:** `immojump immobilien list --fields id,name,type`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `slim` — true = reduziertes Feldset; die stärkste Ersparnis überhaupt (wirkt nur ohne page)
+  - `page` — Seite (ab 1); liefert einen Envelope {items, pagination} — dann ohne slim
+  - `per_page` — Treffer pro Seite (Default 20)
+  - `sort` — created_at (Default), name, kaufpreis, wohnflaeche oder preis_pro_qm
+  - `order` — desc (Default) oder asc
+- **Beispiel:** `immojump immobilien list -q slim=true --fields id,name`
 
 #### immobilien search
 
@@ -316,7 +336,15 @@ Immobilien suchen
 - **Aufruf:** `immojump immobilien search`
 - **Endpoint:** `GET /api/v2/immobilien/search`
 - **Risk:** `read`
-- **Beispiel:** `immojump immobilien search -q q=Köln`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `search` — Suchbegriff über Name und Adresse (heißt hier search, nicht q)
+  - `tag_ids` — Tag-IDs, wiederholt angeben (?tag_ids=a&tag_ids=b); ODER-verknüpft
+  - `status_ids` — Phasen-IDs, wiederholt angeben; ODER-verknüpft
+  - `page` — Seite (Default 1); die Antwort ist immer {items, pagination}
+  - `per_page` — Treffer pro Seite (Default 20)
+  - `sort` — created_at (Default), name, kaufpreis, wohnflaeche oder preis_pro_qm
+  - `order` — desc (Default) oder asc
+- **Beispiel:** `immojump immobilien search -q search=Köln --fields id,name`
 
 #### immobilien get
 
@@ -474,7 +502,17 @@ Aktivitäten auflisten
 - **Aufruf:** `immojump activities list`
 - **Endpoint:** `GET /api/activities/activities`
 - **Risk:** `read`
-- **Beispiel:** `immojump activities list -q status=offen`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `q` — Freitext über Titel, Beschreibung, Typ, Status, Priorität
+  - `type` — ANRUF, BESICHTIGUNG, BRIEF, E-MAIL, MEETING, NOTIZ, SONSTIGES (mehrere kommagetrennt)
+  - `status` — Geplant, In Bearbeitung, Abgeschlossen, Abgebrochen (mehrere kommagetrennt)
+  - `priority` — Hoch, Mittel, Niedrig, NA (mehrere kommagetrennt)
+  - `immobilie` — nur Aktivitäten dieser Immobilie (der Parameter heißt immobilie)
+  - `overdue` — true = offene Aktivitäten, deren Fälligkeit vorbei ist
+  - `due` — today oder week — Fälligkeitsfenster, nur offene Aktivitäten
+  - `page` — Seite (ab 1); erst damit kommt ein Envelope statt aller Treffer
+  - `per_page` — Treffer pro Seite (Default 25, max. 200)
+- **Beispiel:** `immojump activities list -q overdue=true --fields id,title,scheduled_end`
 
 #### activities get
 
@@ -667,7 +705,9 @@ Alle Phasen auflisten
 - **Aufruf:** `immojump statuses list`
 - **Endpoint:** `GET /api/statuses/statuses`
 - **Risk:** `read`
-- **Beispiel:** `immojump statuses list`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `lite` — true = ohne die Aktivitäts-Vorlagen jeder Phase (deutlich kleiner)
+- **Beispiel:** `immojump statuses list -q lite=true --fields id,name`
 
 #### statuses update
 
@@ -851,6 +891,8 @@ Dokumente auflisten
 - **Aufruf:** `immojump documents list`
 - **Endpoint:** `GET /api/documents/documents`
 - **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `immobilien_id` — Pflicht — die Route listet immer die Dokumente genau einer Immobilie
 - **Beispiel:** `immojump documents list -q immobilien_id=5 --fields id,dateiname`
 
 #### documents upload
@@ -936,7 +978,11 @@ Analyse-Ergebnisse abrufen
 - **Aufruf:** `immojump documents analysis-results`
 - **Endpoint:** `GET /api/documents/analysis-results`
 - **Risk:** `read`
-- **Beispiel:** `immojump documents analysis-results -q immobilien_id=5`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `immobilien_id` — nur Ergebnisse zu dieser Immobilie
+  - `document_id` — nur Ergebnisse zu diesem Dokument
+  - `limit` — Anzahl der Ergebnisse (Default 50)
+- **Beispiel:** `immojump documents analysis-results -q immobilien_id=5 -q limit=5`
 
 ### tags
 
@@ -958,6 +1004,8 @@ Tags der Organisation auflisten
 - **Aufruf:** `immojump tags list`
 - **Endpoint:** `GET /api/{org}/tags`
 - **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `for` — nur Tags dieser Objektart, z. B. contact oder immobilie
 - **Beispiel:** `immojump tags list -q for=contact`
 
 #### tags create
@@ -1113,11 +1161,11 @@ Beliebigen /api/-Pfad aufrufen (Escape-Hatch); das Risk-Level entsteht pro Aufru
 - **Argumente:**
   - `method` — HTTP-Methode, z. B. GET oder POST
   - `pfad` — Pfad ab /api/, z. B. /api/deals
-- **Beispiel:** `immojump api GET /api/deals -q status=offen`
+- **Beispiel:** `immojump api GET /api/deals -q status_ids=7`
 
 ### docs
 
-Markdown-Referenz aller Befehle ausgeben
+Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl
 
 | Befehl | Risk | Endpoint |
 | --- | --- | --- |
@@ -1125,16 +1173,19 @@ Markdown-Referenz aller Befehle ausgeben
 
 #### docs
 
-Markdown-Referenz aller Befehle nach stdout schreiben
+Markdown-Referenz nach stdout schreiben — komplett oder als Ausschnitt
 
-- **Aufruf:** `immojump docs`
+- **Aufruf:** `immojump docs [resource] [verb]`
 - **Endpoint:** `lokal`
 - **Risk:** `read`
-- **Beispiel:** `immojump docs > REFERENCE.md`
+- **Argumente:**
+  - `resource` (optional) — Nur diese Ressource ausgeben
+  - `verb` (optional) — Nur diesen Befehl ausgeben
+- **Beispiel:** `immojump docs shares create`
 
 ### schema
 
-Befehls-Schema als JSON ausgeben
+Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt
 
 | Befehl | Risk | Endpoint |
 | --- | --- | --- |

@@ -72,6 +72,19 @@ Schema-Schicht:
   das tut, werden sichere Retries nach Netzwerkabbrüchen möglich, ohne den
   CLI-Contract zu ändern.
 
+Was eine Route an Query-Parametern **wirklich** auswertet, steht deklarativ in
+der Spec (`QueryHints []QueryHint{Name, Summary}`) und erscheint daraus in
+`--help`, `docs` und `schema` als „Bekannte Query-Parameter". Das ist der
+Unterschied zwischen 125.598 und 3.002 Zeichen für dieselbe Immobilienliste
+(24 echte Objekte): `-q slim=true` plus `--fields id,name`. Ein Parameter, der
+nur im Backend existiert, existiert für einen Agenten nicht.
+
+Die Einträge sind in `modules/routes/` nachgelesen, nicht geraten — `-q limit=3`
+lieferte gegen die Produktion alle Objekte, weil `/api/v2/immobilien` `limit`
+gar nicht liest. Eine Registry-Invariante hält QueryHints deshalb auf
+GET-Befehlen fest, eine zweite prüft, dass kein Beispiel einen Parameter
+benutzt, den der Befehl nicht führt.
+
 Wo es für Agenten zählt, gibt es kuratierte Sugar-Flags (z. B.
 `shares create --immobilie <id> --password …`), die intern nur Body bauen.
 Sie stehen deklarativ in der Spec: `Body []FlagBody` bildet Flag → Body-Pfad
@@ -126,6 +139,19 @@ Multi-Org-Arbeit funktioniert wie `kubectl --context`:
   Klartext) und prüft ihn gegen `GET /api/user/me`.
 - Pro Aufruf: `--context <name>` wählt den Context, `--org` / `--base-url`
   überschreiben einzelne Felder.
+
+`auth login` und `auth status` antworten **kompakt**: Context, `base_url`,
+`organisation_id`, maskiertes Token, `token_source` (`env:IMMOJUMP_TOKEN`,
+`env:<name>` oder `context`), `user` mit `id` und `username` plus die eigene
+Rolle in der aktiven Organisation (`organisation_role` aus
+`organisation_access`). Das vollständige Nutzerobjekt gibt es über `--full`.
+
+Der Grund ist Kontext-Ökonomie an der teuersten Stelle: `/api/user/me` liefert
+Abo-Daten, Login-Zähler und jede Organisation des Nutzers — ~1.400 Zeichen als
+Anmeldebestätigung, im Befehl, den jeder Agent als Allererstes ausführt.
+`token_source` beantwortet dabei die häufigste Diagnosefrage („warum nimmt der
+Aufruf ein anderes Token?") und kommt aus `config.Resolve`, damit sich
+Auflösung und Anzeige nicht auseinanderentwickeln.
 
 Auflösungsreihenfolge je Feld: **Flag > Env > Context-Datei.**
 Env-Variablen heißen wie beim MCP-Server: `IMMOJUMP_TOKEN`,
@@ -228,9 +254,9 @@ Backend-Roadmap (siehe „Abgrenzung/später").
   `--fields a,b.c` projiziert Objekte bzw. Listenelemente auf wenige Felder —
   Kontext-Ökonomie für Agenten.
 - Nicht-JSON-Antworten (z. B. Pipeline-Export als YAML) gehen roh nach stdout.
-- stderr: Fehler als eine JSON-Zeile
-  `{"error":true,"status":403,"message":"…","code":"…"}` — die `message`
-  kommt unverändert vom Backend (`api_error`), `code` nur wenn vorhanden.
+- stderr: genau drei Zeilenformen, jede eine JSON-Zeile mit einem
+  Marker-Feld vorneweg — `{"error":true,…}`, `{"warning":true,…}`,
+  `{"trace":true,…}`. **stdout bleibt in jedem Fall reines JSON.**
 - Exit-Codes (stabil, Agenten branchen darauf statt Meldungen zu parsen):
 
 | Exit | Bedeutung                                      |
@@ -256,11 +282,80 @@ Der Timeout (`--timeout`, Default 60 s) hängt am API-Client und nicht am
 `http.Client`. So gilt er auch, wenn ein HTTP-Client injiziert wird (Tests,
 künftige Aufrufer) — sonst wäre `--timeout` eine Zusage mit Löchern.
 
+### Die Fehlerzeile trägt das komplette Payload
+
+`api_error(message, status_code, *, code=None, **extra)` erlaubt **beliebige**
+Zusatzfelder, und genau dort steht die Lösung für den Aufrufer: welches Feld
+abgelehnt wurde (`errors`), welche Werte erlaubt sind (`valid_values`), wie der
+Kontingentstand aussieht (402). Die Fehlerzeile übernimmt deshalb **alle**
+Schlüssel der JSON-Antwort, nicht nur `message`/`code`:
+
+```json
+{"error":true,"status":400,"message":"Validierungsfehler.","errors":{"type":["Invalid enum value task"]},"valid_values":{"type":["ANRUF","BESICHTIGUNG",…]}}
+```
+
+Vorher blieb davon `{"error":true,"status":400,"message":"Validierungsfehler."}`
+übrig — der Agent bekam die Diagnose gestellt und die Antwort weggenommen. Eine
+eigene Schema-Schicht im CLI wäre die falsche Antwort darauf (und über
+`/api/openapi.json` ohnehin nicht zu haben: der Endpoint lehnt Bearer-Tokens
+ab). Das Backend weiß es besser und sagt es bereits — es muss nur ankommen.
+
+Regeln:
+
+- Reihenfolge und Bedeutung von `error`, `status`, `message`, `code` bleiben
+  unverändert; die Zusatzfelder folgen danach alphabetisch (reproduzierbar).
+- Kollidiert ein Backend-Feld mit den CLI-eigenen `error`/`status`, gewinnt das
+  CLI und der Backend-Wert steht als `backend_error`/`backend_status` daneben.
+  Verloren geht nichts.
+- Gelesen wird mit `UseNumber` — ein Kontingentstand darf nicht durch `float64`
+  laufen.
+
+**Nicht-JSON-Antworten** bekommen eine eigene, knappe Meldung statt einer
+halben HTML-Seite: `HTTP 404 Not Found — die Route existiert auf dieser Instanz
+nicht oder erlaubt diese Methode nicht (Antwort war kein JSON)`. Der Rohtext
+bleibt als Feld `raw` erhalten, ohne Tags und Umbrüche, gekürzt auf 200 Zeichen.
+404 und 405 teilen sich diese Meldung bewusst: In der Produktion antwortet eine
+unbekannte Route mit 405, und beides bedeutet für den Aufrufer dasselbe —
+nicht weiter Pfade raten.
+
+### `--fields`, das ins Leere zeigt, sagt das
+
+`contacts create … --fields id,first_name` gab stumm `{}` und Exit 0 zurück:
+Die Antwort ist verpackt (`{"contact":{…},"success":true}`), die Felder liegen
+unter `contact.*`. Für einen Agenten ist ein leeres Objekt kein Signal — er
+hält den Aufruf für gescheitert und legt im Zweifel doppelt an.
+
+Trifft kein einziges (oder nur ein Teil der) angeforderten Felder, geht eine
+Warnzeile nach stderr, die die fehlenden Pfade und die tatsächlich vorhandenen
+Top-Level-Schlüssel nennt (höchstens acht, sonst gekürzt). Bei Listen zählt ein
+Feld als vorhanden, sobald ein einziges Element es trägt; eine leere Liste
+meldet nichts, dort ist schlicht nichts zu finden. Der Exit-Code bleibt `0` —
+es ist kein Fehler.
+
+Bewusst **nicht** implementiert: automatisches Auspacken von Wrapper-Keys. Das
+CLI soll nicht raten, welcher Schlüssel gemeint war; es nennt die vorhandenen
+und überlässt die Wahl dem Aufrufer.
+
+### Selbstauskunft: `--verbose`, `docs`/`schema` mit Ausschnitt
+
+`--verbose` schreibt Methode und vollständige URL vor dem Request nach stderr
+(`{"trace":true,…}`) — ohne Header und ohne Body, der Token taucht dort nie
+auf. Ohne diese Zeile lässt sich ein 404 nicht einordnen: falscher Pfad oder
+Route fehlt auf dieser Instanz? Genau daran hing zuvor eine Serie geratener
+Pfade über den Escape-Hatch.
+
+`docs` nimmt seit demselben Durchgang `[resource [verb]]` wie `schema` — beide
+über dieselbe Auswahlfunktion, damit Meldungen und Exit-Codes identisch
+bleiben. Der ungescopte Aufruf (37 KB Markdown, 28 KB JSON) weist auf stderr
+auf die gezielte Form hin (~2 KB); `immojump docs > REFERENCE.md` bleibt davon
+unberührt, weil der Hinweis nicht auf stdout geht.
+
 ## Befehlsumfang v1
 
 Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
 
-- `auth` login/status, `context` list/use/current/delete
+- `auth` login/status (kompakt, `--full` für die vollständige Antwort),
+  `context` list/use/current/delete
 - `contacts` list/get/create/update/set-status/delete/activities/immobilien
 - `immobilien` list/search/get/create/update/patch/delete/contacts/duplicate
 - `units` list/create/update/delete
@@ -278,7 +373,7 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
 - `api <METHOD> <pfad>` — Escape-Hatch für alles, was (noch) keinen kuratierten
   Befehl hat; gleiche Auth, gleiche Allowlist, gleiche Policy (das Risk kommt
   aus der Registry, siehe oben)
-- `docs`, `schema`, `version`
+- `docs [resource [verb]]`, `schema [resource [verb]]`, `version`
 
 Spezialfälle: `documents upload` (Multipart `files[]` gegen
 `/api/documents/documents/bulk-upload`), `pipelines import`
@@ -331,6 +426,5 @@ statt `v0.1.0`.
 
 ## Abgrenzung / später
 
-- `docs --skill`: fertiges SKILL.md für Claude-Agenten generieren.
 - `docs --skill`: fertiges SKILL.md für Claude-Agenten generieren.
 - Images-Upload, Custom Fields, Deals/Tickets als kuratierte Befehle.

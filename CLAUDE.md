@@ -48,9 +48,14 @@ bewusst: Derselbe Run hat `test` schon bestanden.
 - **Alles auf Deutsch**: Hilfetexte, Summaries, Fehlermeldungen, Kommentare.
   Zielgruppe sind Agenten und Entwickler, nicht Endkunden — knapp und präzise.
 - **Backend-Meldungen unverändert durchreichen.** Das `message`-Feld aus
-  `api_error()` wird nie umformuliert oder übersetzt.
-- **stdout ist für Nutzdaten, stderr für alles andere.** Bei Erfolg bleibt
-  stderr leer.
+  `api_error()` wird nie umformuliert oder übersetzt — und die Fehlerzeile
+  trägt **alle** Felder der Antwort (`errors`, `valid_values`, Kontingentstand
+  bei 402). Dort steht die Lösung für den Aufrufer.
+- **stdout ist für Nutzdaten, stderr für alles andere.** Auf stderr gibt es
+  genau drei Zeilenformen, jede eine JSON-Zeile: `{"error":true,…}`,
+  `{"warning":true,…}` (Hinweis, Exit bleibt 0) und `{"trace":true,…}`
+  (`--verbose`). Warnungen und Hinweise sind sparsam einzusetzen — bei einem
+  gewöhnlichen erfolgreichen Aufruf bleibt stderr leer.
 
 ## Architektur
 
@@ -107,6 +112,12 @@ Kuratierte Sugar-Flags gehen so weit wie möglich deklarativ über `Body` bzw.
 `Query` in der Spec (Flag → Body-Pfad, Flag → Query-Parameter). Erst wenn das
 nicht reicht — Listen bauen, `null` schicken, Werte normalisieren — kommt ein
 `Special` dazu.
+
+Query-Parameter, die eine Route auswertet, gehören als `QueryHints` in dieselbe
+Spec — **nachgelesen in `modules/routes/`, nie geraten.** Sie erscheinen daraus
+in `--help`, `docs` und `schema`. Ein Parameter, den die Route ignoriert
+(`limit` bei `/api/v2/immobilien`), ist schlimmer als keiner: Er sieht aus, als
+würde er wirken.
 
 ## Tests
 

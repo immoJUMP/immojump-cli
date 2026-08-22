@@ -116,6 +116,137 @@ func TestRegistryInvariants(t *testing.T) {
 	}
 }
 
+// TestQueryHintsOnlyOnReadingCommands: Query-Parameter beschreiben, wie eine
+// Abfrage eingegrenzt wird — auf einem POST wäre das eine Falschaussage.
+func TestQueryHintsOnlyOnReadingCommands(t *testing.T) {
+	for _, spec := range Registry {
+		if len(spec.QueryHints) == 0 {
+			continue
+		}
+		if spec.Local || spec.Special == SpecialAPI || !strings.EqualFold(spec.Method, "GET") {
+			t.Errorf("%q: QueryHints gehören nur an GET-Befehle (Methode %q, Local %v)",
+				spec.Name(), spec.Method, spec.Local)
+		}
+		seen := map[string]bool{}
+		for _, hint := range spec.QueryHints {
+			if strings.TrimSpace(hint.Name) == "" {
+				t.Errorf("%q: QueryHint ohne Name", spec.Name())
+			}
+			if strings.TrimSpace(hint.Summary) == "" {
+				t.Errorf("%q: QueryHint %q ohne Beschreibung", spec.Name(), hint.Name)
+			}
+			if seen[hint.Name] {
+				t.Errorf("%q: QueryHint %q ist doppelt", spec.Name(), hint.Name)
+			}
+			seen[hint.Name] = true
+		}
+	}
+}
+
+// TestListCommandsAdvertiseTheirQueryParameters: `slim=true` schrumpft die
+// Immobilienliste um Faktor 6, `per_page` begrenzt sie — beides fand ein
+// Agent bisher nirgends. Was das Backend auswertet, gehört in die Registry.
+func TestListCommandsAdvertiseTheirQueryParameters(t *testing.T) {
+	want := map[string][]string{
+		"immobilien list":   {"slim", "page", "per_page"},
+		"immobilien search": {"search", "page", "per_page"},
+		"contacts list":     {"slim", "q", "page", "per_page"},
+		"activities list":   {"q", "type", "status", "page", "per_page"},
+		"documents list":    {"immobilien_id"},
+		"statuses list":     {"lite"},
+		"tags list":         {"for"},
+	}
+	for name, params := range want {
+		parts := strings.SplitN(name, " ", 2)
+		spec, ok := Lookup(parts[0], parts[1])
+		if !ok {
+			t.Fatalf("%q fehlt in der Registry", name)
+		}
+		declared := map[string]bool{}
+		for _, hint := range spec.QueryHints {
+			declared[hint.Name] = true
+		}
+		for _, param := range params {
+			if !declared[param] {
+				t.Errorf("%q: Query-Parameter %q ist im Backend belegt, fehlt aber in QueryHints", name, param)
+			}
+		}
+	}
+}
+
+// TestNoExampleUsesUnsupportedParameters: `-q limit=3` lieferte gegen die
+// Produktion alle Objekte — die Route kennt limit nicht und ignoriert es
+// stillschweigend. Ein Beispiel, das nichts tut, ist schlimmer als keins.
+func TestNoExampleUsesUnsupportedParameters(t *testing.T) {
+	for _, spec := range Registry {
+		if !strings.Contains(spec.Example, "-q ") {
+			continue
+		}
+		if spec.Special == SpecialAPI {
+			// Der Escape-Hatch ruft beliebige Pfade auf — welche Parameter
+			// die auswerten, weiß die Registry naturgemäß nicht.
+			continue
+		}
+		declared := map[string]bool{}
+		for _, hint := range spec.QueryHints {
+			declared[hint.Name] = true
+		}
+		for _, part := range strings.Split(spec.Example, "-q ")[1:] {
+			key, _, found := strings.Cut(strings.Fields(part)[0], "=")
+			if !found {
+				continue
+			}
+			if !declared[key] {
+				t.Errorf("%q: Beispiel nutzt -q %s=…, das der Befehl nicht als QueryHint führt",
+					spec.Name(), key)
+			}
+		}
+	}
+}
+
+// TestQueryHintsAreVisibleEverywhere: Ein Parameter, der nur im Code steht,
+// existiert für einen Agenten nicht.
+func TestQueryHintsAreVisibleEverywhere(t *testing.T) {
+	h := newHarness(t)
+
+	_, help, _ := h.run("immobilien", "list", "--help")
+	for _, want := range []string{"Bekannte Query-Parameter", "slim", "per_page"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("--help soll %q zeigen:\n%s", want, help)
+		}
+	}
+
+	_, docs, _ := h.run("docs", "immobilien", "list")
+	if !strings.Contains(docs, "slim") {
+		t.Errorf("die Referenz soll slim nennen:\n%s", docs)
+	}
+
+	_, raw, _ := h.run("schema", "immobilien", "list")
+	var doc struct {
+		Commands []struct {
+			QueryHints []struct {
+				Name    string `json:"name"`
+				Summary string `json:"summary"`
+			} `json:"query_hints"`
+		} `json:"commands"`
+	}
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatalf("JSON erwartet: %v", err)
+	}
+	if len(doc.Commands) != 1 || len(doc.Commands[0].QueryHints) == 0 {
+		t.Fatalf("query_hints im Schema erwartet, got %s", raw)
+	}
+	found := false
+	for _, hint := range doc.Commands[0].QueryHints {
+		if hint.Name == "slim" && hint.Summary != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("slim mit Beschreibung erwartet, got %s", raw)
+	}
+}
+
 // TestFlagKindsAreConsistent: Der Argument-Parser entscheidet anhand des
 // Flag-Namens, ob ein Wert folgt — derselbe Name darf deshalb nicht in einem
 // Befehl bool und in einem anderen string sein.

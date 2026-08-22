@@ -202,6 +202,144 @@ func TestAuthStatusShowsResolvedConfigWithMaskedToken(t *testing.T) {
 	}
 }
 
+// meResponse ist eine realistische Antwort von /api/user/me — inklusive der
+// Felder, die eine Anmeldebestätigung nicht braucht.
+const meResponse = `{"id":7,"username":"chris@immojump.de","role":"USER","login_count":214,` +
+	`"first_name":"Chris","last_name":"Simons","subscription_type":"PRO","has_subscription":true,` +
+	`"trial_time_left":0,"is_active":true,"email_verified":true,"created_at":"2024-01-02T10:00:00",` +
+	`"organisation_access":[{"organisationId":"org-test","organisationName":"immoJUMP GmbH",` +
+	`"membershipRole":"admin","subscription":{"tier":"PRO","active":true}},` +
+	`{"organisationId":"org-andere","organisationName":"Zweitfirma","membershipRole":"member",` +
+	`"subscription":{"tier":"BASIS","active":false}}]}`
+
+// TestAuthStatusIsCompactByDefault: `auth status` ist der Befehl, den jeder
+// Agent zuerst ausführt. Das komplette Nutzerobjekt (Abo-Daten, Login-Zähler,
+// alle Organisationen) als Anmeldebestätigung auszugeben, verbrennt Kontext
+// für nichts.
+func TestAuthStatusIsCompactByDefault(t *testing.T) {
+	h := newHarness(t)
+	h.respond = meResponse
+
+	code, stdout, stderr := h.run("auth", "status")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("JSON erwartet: %q (%v)", stdout, err)
+	}
+
+	user, ok := out["user"].(map[string]any)
+	if !ok {
+		t.Fatalf("user-Objekt erwartet, got %#v", out["user"])
+	}
+	if len(user) != 2 || user["username"] != "chris@immojump.de" {
+		t.Errorf("nur id und username erwartet, got %#v", user)
+	}
+	if out["organisation_role"] != "admin" {
+		t.Errorf("Rolle in der aktiven Organisation erwartet, got %#v", out["organisation_role"])
+	}
+	if out["token_source"] == nil {
+		t.Error("token_source erwartet — woher das Token kam, ist die halbe Diagnose")
+	}
+	for _, unwanted := range []string{"login_count", "subscription_type", "organisation_access", "Zweitfirma"} {
+		if strings.Contains(stdout, unwanted) {
+			t.Errorf("%q gehört nicht in die Anmeldebestätigung:\n%s", unwanted, stdout)
+		}
+	}
+	if len(stdout) > 400 {
+		t.Errorf("kompakte Ausgabe erwartet, got %d Zeichen:\n%s", len(stdout), stdout)
+	}
+}
+
+func TestAuthStatusFullShowsCompleteUser(t *testing.T) {
+	h := newHarness(t)
+	h.respond = meResponse
+
+	code, stdout, stderr := h.run("auth", "status", "--full")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	for _, want := range []string{"login_count", "subscription_type", "organisation_access", "Zweitfirma"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("--full soll %q zeigen:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestAuthLoginIsCompactByDefault(t *testing.T) {
+	h := newHarness(t)
+	h.respond = meResponse
+
+	code, stdout, stderr := h.run("auth", "login", "--context", "prod",
+		"--base-url", h.server.URL, "--organisation", "org-test", "--token", "tok-lang-genug-1234")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("JSON erwartet: %q (%v)", stdout, err)
+	}
+	user, _ := out["user"].(map[string]any)
+	if len(user) != 2 {
+		t.Errorf("nur id und username erwartet, got %#v", user)
+	}
+	if out["context"] != "prod" || out["token_source"] != "context" {
+		t.Errorf("Context und Token-Quelle erwartet, got %#v", out)
+	}
+	if out["organisation_role"] != "admin" {
+		t.Errorf("Rolle erwartet, got %#v", out["organisation_role"])
+	}
+	if strings.Contains(stdout, "tok-lang-genug-1234") {
+		t.Error("Klartext-Token darf nirgends auftauchen")
+	}
+	if strings.Contains(stdout, "login_count") {
+		t.Errorf("kompakte Bestätigung erwartet:\n%s", stdout)
+	}
+}
+
+func TestAuthLoginFullShowsCompleteUser(t *testing.T) {
+	h := newHarness(t)
+	h.respond = meResponse
+	_, stdout, _ := h.run("auth", "login", "--context", "prod", "--base-url", h.server.URL,
+		"--organisation", "org-test", "--token", "tok-1234567890", "--full")
+	if !strings.Contains(stdout, "login_count") {
+		t.Errorf("--full soll das vollständige Objekt zeigen:\n%s", stdout)
+	}
+}
+
+// TestAuthStatusWithoutMatchingOrganisationOmitsRole: Ohne Treffer wird keine
+// Rolle erfunden.
+func TestAuthStatusWithoutMatchingOrganisationOmitsRole(t *testing.T) {
+	h := newHarness(t)
+	h.env["IMMOJUMP_ORGANISATION_ID"] = "org-unbekannt"
+	h.respond = meResponse
+
+	_, stdout, _ := h.run("auth", "status")
+	if strings.Contains(stdout, "organisation_role") {
+		t.Errorf("ohne passende Organisation keine Rolle erwartet:\n%s", stdout)
+	}
+}
+
+// TestAuthStatusFieldsProjectTheCompactForm: --fields muss auf der kompakten
+// Form greifen — sonst wäre sie eine Sackgasse.
+func TestAuthStatusFieldsProjectTheCompactForm(t *testing.T) {
+	h := newHarness(t)
+	h.respond = meResponse
+
+	code, stdout, stderr := h.run("auth", "status", "--fields", "organisation_id,user.username")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	want := `{"organisation_id":"org-test","user":{"username":"chris@immojump.de"}}` + "\n"
+	if stdout != want {
+		t.Errorf("Projektion erwartet\n got: %q\nwant: %q", stdout, want)
+	}
+	if stderr != "" {
+		t.Errorf("kein Hinweis erwartet, got %q", stderr)
+	}
+}
+
 func TestAuthStatusWithoutTokenExitsWith3(t *testing.T) {
 	h := newHarness(t)
 	delete(h.env, "IMMOJUMP_TOKEN")

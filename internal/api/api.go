@@ -68,6 +68,11 @@ type Client struct {
 	Timeout time.Duration
 	// Env versorgt die Allowlist-Prüfung (injizierbar für Tests).
 	Env func(string) string
+	// Trace bekommt Methode und vollständige URL, bevor der Request rausgeht
+	// (--verbose). Ohne diese Zeile lässt sich ein 404 nicht einordnen:
+	// falscher Pfad oder Route fehlt auf dieser Instanz? Der Token steht im
+	// Header und taucht hier nie auf.
+	Trace func(method, url string)
 }
 
 // Error ist ein Backend- oder Transportfehler mit stabilem Exit-Code.
@@ -75,6 +80,12 @@ type Error struct {
 	Status  int
 	Message string
 	Code    string
+	// Details ist das komplette Fehler-Payload des Backends. api_error()
+	// erlaubt beliebige Zusatzfelder (`errors`, `valid_values`, der
+	// Kontingentstand bei 402) — genau darin steht, wie der Aufruf zu
+	// korrigieren ist. Zahlen bleiben json.Number, damit nichts verfälscht
+	// wird.
+	Details map[string]any
 	// Exit überschreibt die Ableitung aus Status (z. B. lokale Fehler).
 	Exit int
 	Err  error
@@ -157,6 +168,9 @@ func (c *Client) Do(req Request) (*Response, error) {
 	method := strings.ToUpper(strings.TrimSpace(req.Method))
 	if method == "" {
 		method = http.MethodGet
+	}
+	if c.Trace != nil {
+		c.Trace(method, target)
 	}
 	// Der Timeout hängt am Context, damit er auch dann greift, wenn der
 	// HTTP-Client von außen kommt und keinen eigenen mitbringt. Der Body ist
@@ -264,12 +278,17 @@ func buildBody(req Request) (io.Reader, string, error) {
 	return bytes.NewReader(req.Body), contentType, nil
 }
 
-// backendError liest {message, code} aus der Antwort — die Meldung wird
-// unverändert durchgereicht (sie kommt aus api_error() im Backend).
+// maxRawSnippet begrenzt den Rohtext einer Nicht-JSON-Antwort.
+const maxRawSnippet = 200
+
+// backendError baut den Fehler aus der Antwort. Die Meldung wird unverändert
+// durchgereicht (sie kommt aus api_error() im Backend), und das komplette
+// Payload wandert nach Details — dort steht für den Aufrufer die Lösung.
 func backendError(res *Response) *Error {
 	e := &Error{Status: res.Status}
-	var payload map[string]any
-	if json.Unmarshal(res.Body, &payload) == nil {
+	payload, isJSON := decodeErrorPayload(res.Body)
+	if isJSON {
+		e.Details = payload
 		for _, key := range []string{"message", "error", "msg", "description"} {
 			if v, ok := payload[key].(string); ok && v != "" {
 				e.Message = v
@@ -280,15 +299,80 @@ func backendError(res *Response) *Error {
 			e.Code = v
 		}
 	}
-	if e.Message == "" {
-		snippet := strings.TrimSpace(string(res.Body))
-		if len(snippet) > 200 {
-			snippet = snippet[:200] + "…"
-		}
-		e.Message = fmt.Sprintf("HTTP %d %s", res.Status, http.StatusText(res.Status))
-		if snippet != "" {
-			e.Message += ": " + snippet
+	if e.Message != "" {
+		return e
+	}
+
+	e.Message = statusMessage(res.Status, isJSON)
+	if !isJSON {
+		// Der Rohtext bleibt erreichbar, aber als eigenes Feld und gekürzt —
+		// eine HTML-Seite als Fehlermeldung ist für niemanden lesbar.
+		if raw := condense(res.Body); raw != "" {
+			e.Details = map[string]any{"raw": raw}
 		}
 	}
 	return e
+}
+
+// decodeErrorPayload liest das Fehler-Objekt, ohne Zahlen zu verfälschen.
+// Alles, was kein JSON-Objekt ist (HTML-Seite, Array, Skalar), gilt als
+// "kein JSON".
+func decodeErrorPayload(body []byte) (map[string]any, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil || payload == nil {
+		return nil, false
+	}
+	return payload, true
+}
+
+// statusMessage ist die Meldung, wenn das Backend selbst keine geliefert hat.
+func statusMessage(status int, isJSON bool) string {
+	base := fmt.Sprintf("HTTP %d %s", status, http.StatusText(status))
+	if isJSON {
+		return base + " (Antwort ohne message-Feld)"
+	}
+	switch status {
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		// Genau der Fall, der sonst zu geratenen Pfaden führt: Nicht das CLI
+		// baut Unsinn, die Route gibt es auf dieser Instanz nicht.
+		return base + " — die Route existiert auf dieser Instanz nicht oder erlaubt diese Methode nicht (Antwort war kein JSON)"
+	default:
+		return base + " — die Antwort war kein JSON"
+	}
+}
+
+// condense macht aus einer HTML-Fehlerseite eine kurze Zeile: Tags raus,
+// Whitespace zusammen, nach maxRawSnippet Zeichen Schluss.
+func condense(body []byte) string {
+	out := &strings.Builder{}
+	inTag := false
+	pendingSpace := false
+	for _, r := range string(body) {
+		switch {
+		case r == '<':
+			inTag = true
+			pendingSpace = out.Len() > 0
+			continue
+		case r == '>':
+			inTag = false
+			continue
+		case inTag:
+			continue
+		case r == ' ', r == '\t', r == '\n', r == '\r':
+			pendingSpace = out.Len() > 0
+			continue
+		}
+		if pendingSpace {
+			out.WriteByte(' ')
+			pendingSpace = false
+		}
+		out.WriteRune(r)
+	}
+	text := []rune(out.String())
+	if len(text) > maxRawSnippet {
+		return string(text[:maxRawSnippet]) + "…"
+	}
+	return string(text)
 }

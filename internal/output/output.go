@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -18,36 +20,57 @@ type Options struct {
 	Fields []string
 }
 
+// Report sagt, was --fields in der Antwort gefunden hat. Ohne ihn bekäme ein
+// Agent bei einer verpackten Antwort (`{"contact":{…}}`) nur ein `{}` zu sehen
+// und hielte den Aufruf für gescheitert — im Zweifel legt er doppelt an.
+type Report struct {
+	// Requested sind alle angefragten Pfade in der Reihenfolge von --fields.
+	Requested []string
+	// Missing sind die Pfade, die in keinem untersuchten Objekt vorkamen.
+	Missing []string
+	// Keys sind die tatsächlich vorhandenen Top-Level-Schlüssel (gekürzt).
+	Keys []string
+	// KeysTruncated sagt, dass es mehr Schlüssel gibt als Keys nennt.
+	KeysTruncated bool
+}
+
+// maxReportedKeys begrenzt die Schlüsselliste im Hinweis — sie soll führen,
+// nicht die halbe Antwort wiederholen.
+const maxReportedKeys = 8
+
 // Render schreibt die Antwort. Nicht-JSON (z. B. Pipeline-Export als YAML)
-// geht unverändert durch.
-func Render(w io.Writer, body []byte, contentType string, opts Options) error {
+// geht unverändert durch. Der Report ist nur bei --fields gefüllt.
+func Render(w io.Writer, body []byte, contentType string, opts Options) (Report, error) {
+	report := Report{}
 	if len(bytes.TrimSpace(body)) == 0 {
-		return nil
+		return report, nil
 	}
 	if !json.Valid(body) {
-		return writeRaw(w, body)
+		return report, writeRaw(w, body)
 	}
 
 	payload := json.RawMessage(body)
 	if len(opts.Fields) > 0 {
-		projected, err := project(payload, parsePaths(opts.Fields))
+		collector := newFieldCollector(parsePaths(opts.Fields))
+		projected, err := project(payload, collector.paths, collector)
 		if err != nil {
-			return err
+			return report, err
 		}
 		payload = projected
+		report = collector.report()
 	}
 
 	buf := &bytes.Buffer{}
 	if opts.Pretty {
 		if err := json.Indent(buf, payload, "", "  "); err != nil {
-			return fmt.Errorf("Ausgabe nicht formatierbar: %w", err)
+			return report, fmt.Errorf("Ausgabe nicht formatierbar: %w", err)
 		}
 	} else if err := json.Compact(buf, payload); err != nil {
-		return fmt.Errorf("Ausgabe nicht kompaktierbar: %w", err)
+		return report, fmt.Errorf("Ausgabe nicht kompaktierbar: %w", err)
 	}
 	buf.WriteByte('\n')
 	_, err := w.Write(buf.Bytes())
-	return err
+	return report, err
 }
 
 func writeRaw(w io.Writer, body []byte) error {
@@ -85,26 +108,127 @@ func Compact(raw []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// errorPayload ist die Fehlerzeile auf stderr. Die Feldreihenfolge ist die
-// Deklarationsreihenfolge; status und code entfallen, wenn sie leer sind
-// (z. B. bei lokalen Usage-Fehlern).
-type errorPayload struct {
-	Error   bool   `json:"error"`
-	Status  int    `json:"status,omitempty"`
-	Message string `json:"message"`
-	Code    string `json:"code,omitempty"`
+// field ist ein Schlüssel-Wert-Paar in fester Reihenfolge — anders als eine
+// Map, die encoding/json alphabetisch sortiert.
+type field struct {
+	key   string
+	value any
 }
 
-// WriteError schreibt die Fehlerzeile für stderr.
-func WriteError(w io.Writer, status int, message, code string) error {
-	encoded, err := Marshal(errorPayload{Error: true, Status: status, Message: message, Code: code})
-	if err != nil {
-		return err
+// writeLine schreibt genau eine JSON-Zeile in der übergebenen Reihenfolge.
+func writeLine(w io.Writer, fields []field) error {
+	buf := &bytes.Buffer{}
+	buf.WriteByte('{')
+	for i, f := range fields {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		key, err := Marshal(f.key)
+		if err != nil {
+			return err
+		}
+		value, err := Marshal(f.value)
+		if err != nil {
+			return err
+		}
+		buf.Write(key)
+		buf.WriteByte(':')
+		buf.Write(value)
 	}
-	if _, err := w.Write(append(encoded, '\n')); err != nil {
-		return err
+	buf.WriteString("}\n")
+	_, err := w.Write(buf.Bytes())
+	return err
+}
+
+// WriteError schreibt die Fehlerzeile für stderr: erst die festen Felder
+// (error, status, message, code — Bedeutung und Position unverändert), danach
+// jedes weitere Feld der Backend-Antwort.
+//
+// Das ist der Kern: `api_error()` erlaubt beliebige Zusatzfelder, und genau
+// darin steht die Lösung für den Aufrufer — welches Feld falsch war
+// (`errors`), welche Werte erlaubt sind (`valid_values`), wie der
+// Kontingentstand aussieht (402). Eine Fehlerzeile, die nur `message`
+// durchreicht, wirft die Selbstkorrektur weg.
+func WriteError(w io.Writer, status int, message, code string, details map[string]any) error {
+	fields := []field{{"error", true}}
+	if status != 0 {
+		fields = append(fields, field{"status", status})
 	}
-	return nil
+	fields = append(fields, field{"message", message})
+	if code != "" {
+		fields = append(fields, field{"code", code})
+	}
+	return writeLine(w, append(fields, extraFields(details, status, message, code)...))
+}
+
+// WriteWarning schreibt eine Hinweiszeile nach stderr. Sie trägt bewusst
+// `warning` statt `error`: Der Aufruf ist gelungen (Exit 0), es gibt nur etwas
+// zu wissen.
+func WriteWarning(w io.Writer, message string, details map[string]any) error {
+	fields := []field{{"warning", true}, {"message", message}}
+	return writeLine(w, append(fields, extraFields(details, 0, "", "")...))
+}
+
+// WriteTrace schreibt die Zeile für --verbose: Methode und vollständige URL,
+// bevor der Request rausgeht. Bewusst kein Header und kein Body — dort steht
+// der Token.
+func WriteTrace(w io.Writer, method, url string) error {
+	return writeLine(w, []field{{"trace", true}, {"method", method}, {"url", url}})
+}
+
+// extraFields hängt die übrigen Felder der Backend-Antwort an — sortiert,
+// damit die Zeile reproduzierbar bleibt.
+//
+// Bei den CLI-eigenen Schlüsseln `error` und `status` gewinnt das CLI; der
+// Backend-Wert wandert nach `backend_error`/`backend_status`, statt verloren
+// zu gehen. Was in `message`/`code` schon steht, wird nicht wiederholt.
+func extraFields(details map[string]any, status int, message, code string) []field {
+	if len(details) == 0 {
+		return nil
+	}
+	out := make([]field, 0, len(details))
+	for _, key := range sortedKeys(details) {
+		value := details[key]
+		switch key {
+		case "message":
+			if text, ok := value.(string); ok && text == message {
+				continue
+			}
+		case "code":
+			if text, ok := value.(string); ok && text == code {
+				continue
+			}
+		case "status":
+			if number, ok := value.(json.Number); ok && number.String() == strconv.Itoa(status) {
+				continue
+			}
+		case "error":
+		default:
+			out = append(out, field{key, value})
+			continue
+		}
+		out = append(out, field{freeKey("backend_"+key, details), value})
+	}
+	return out
+}
+
+// freeKey sucht einen Namen, den die Antwort nicht selbst schon belegt.
+func freeKey(name string, details map[string]any) string {
+	for {
+		if _, taken := details[name]; !taken {
+			return name
+		}
+		name = "backend_" + name
+	}
+}
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // parsePaths zerlegt "a,b.c" in [][]string{{"a"},{"b","c"}}.
@@ -124,9 +248,57 @@ func parsePaths(fields []string) [][]string {
 	return paths
 }
 
+// fieldCollector protokolliert während der Projektion, welche Pfade wirklich
+// vorkamen und welche Schlüssel die Antwort stattdessen hat.
+type fieldCollector struct {
+	paths [][]string
+	hit   []bool
+	keys  map[string]bool
+	// objects zählt die untersuchten Objekte. Ohne ein einziges (leere Liste,
+	// Skalar) gibt es nichts zu melden — dort ist nichts zu finden.
+	objects int
+}
+
+func newFieldCollector(paths [][]string) *fieldCollector {
+	return &fieldCollector{paths: paths, hit: make([]bool, len(paths)), keys: map[string]bool{}}
+}
+
+func (c *fieldCollector) seeObject(fields map[string]json.RawMessage) {
+	c.objects++
+	for key := range fields {
+		c.keys[key] = true
+	}
+}
+
+func (c *fieldCollector) markHit(index int) { c.hit[index] = true }
+
+func (c *fieldCollector) report() Report {
+	report := Report{}
+	if c.objects == 0 {
+		return report
+	}
+	for i, path := range c.paths {
+		joined := strings.Join(path, ".")
+		report.Requested = append(report.Requested, joined)
+		if !c.hit[i] {
+			report.Missing = append(report.Missing, joined)
+		}
+	}
+	keys := make([]string, 0, len(c.keys))
+	for key := range c.keys {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) > maxReportedKeys {
+		keys, report.KeysTruncated = keys[:maxReportedKeys], true
+	}
+	report.Keys = keys
+	return report
+}
+
 // project reduziert Objekte bzw. alle Elemente eines Arrays auf die
 // angefragten Pfade. Die Ausgabereihenfolge folgt der Reihenfolge in --fields.
-func project(raw json.RawMessage, paths [][]string) (json.RawMessage, error) {
+func project(raw json.RawMessage, paths [][]string, collector *fieldCollector) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		return raw, nil
@@ -143,7 +315,7 @@ func project(raw json.RawMessage, paths [][]string) (json.RawMessage, error) {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			projected, err := project(item, paths)
+			projected, err := project(item, paths, collector)
 			if err != nil {
 				return nil, err
 			}
@@ -159,8 +331,9 @@ func project(raw json.RawMessage, paths [][]string) (json.RawMessage, error) {
 		if err := json.Unmarshal(trimmed, &fields); err != nil {
 			return nil, fmt.Errorf("Objekt nicht lesbar: %w", err)
 		}
+		collector.seeObject(fields)
 		tree := &node{}
-		for _, path := range paths {
+		for i, path := range paths {
 			value, ok := fields[path[0]]
 			if !ok {
 				continue
@@ -170,6 +343,7 @@ func project(raw json.RawMessage, paths [][]string) (json.RawMessage, error) {
 					continue
 				}
 			}
+			collector.markHit(i)
 			tree.insert(path, value)
 		}
 		return tree.marshalObject()

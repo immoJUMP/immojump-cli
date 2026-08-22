@@ -2,17 +2,26 @@ package output
 
 import (
 	"bytes"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
 
 func render(t *testing.T, body string, opts Options) string {
 	t.Helper()
+	out, _ := renderWithReport(t, body, opts)
+	return out
+}
+
+func renderWithReport(t *testing.T, body string, opts Options) (string, Report) {
+	t.Helper()
 	buf := &bytes.Buffer{}
-	if err := Render(buf, []byte(body), "application/json", opts); err != nil {
+	report, err := Render(buf, []byte(body), "application/json", opts)
+	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	return buf.String()
+	return buf.String(), report
 }
 
 func TestCompactKeepsFieldOrderOnOneLine(t *testing.T) {
@@ -102,6 +111,89 @@ func TestFieldsIgnoresUnknownPaths(t *testing.T) {
 	}
 }
 
+// TestReportNamesMissingFieldsAndAvailableKeys: `{}` als einzige Antwort ist
+// für einen Agenten kein Signal — er hält den Aufruf für gescheitert. Der
+// Report sagt, was fehlte und welche Schlüssel es stattdessen gibt.
+func TestReportNamesMissingFieldsAndAvailableKeys(t *testing.T) {
+	body := `{"contact":{"id":42,"first_name":"Ada"},"success":true}`
+	got, report := renderWithReport(t, body, Options{Fields: []string{"id", "first_name"}})
+	if got != "{}\n" {
+		t.Errorf("leeres Objekt auf stdout erwartet, got %q", got)
+	}
+	if !reflect.DeepEqual(report.Missing, []string{"id", "first_name"}) {
+		t.Errorf("beide Felder als fehlend erwartet, got %#v", report.Missing)
+	}
+	if !reflect.DeepEqual(report.Requested, []string{"id", "first_name"}) {
+		t.Errorf("angeforderte Felder erwartet, got %#v", report.Requested)
+	}
+	if !reflect.DeepEqual(report.Keys, []string{"contact", "success"}) {
+		t.Errorf("Top-Level-Schlüssel erwartet, got %#v", report.Keys)
+	}
+}
+
+func TestReportNamesOnlyTheMissingHalf(t *testing.T) {
+	body := `{"id":42,"success":true}`
+	_, report := renderWithReport(t, body, Options{Fields: []string{"id", "first_name"}})
+	if !reflect.DeepEqual(report.Missing, []string{"first_name"}) {
+		t.Errorf("nur das fehlende Feld erwartet, got %#v", report.Missing)
+	}
+}
+
+func TestReportStaysQuietWhenEverythingMatched(t *testing.T) {
+	_, report := renderWithReport(t, `{"id":42,"name":"A"}`, Options{Fields: []string{"id", "name"}})
+	if len(report.Missing) != 0 {
+		t.Errorf("keine Meldung erwartet, got %#v", report.Missing)
+	}
+}
+
+// TestReportForListsCountsAnyElement: Ein Feld gilt als vorhanden, sobald ein
+// einziges Element es trägt — sonst warnte jede Liste mit Lücken.
+func TestReportForListsCountsAnyElement(t *testing.T) {
+	body := `[{"id":1},{"id":2,"name":"B"}]`
+	_, report := renderWithReport(t, body, Options{Fields: []string{"id", "name"}})
+	if len(report.Missing) != 0 {
+		t.Errorf("keine Meldung erwartet, got %#v", report.Missing)
+	}
+
+	_, report = renderWithReport(t, body, Options{Fields: []string{"titel"}})
+	if !reflect.DeepEqual(report.Missing, []string{"titel"}) {
+		t.Errorf("titel als fehlend erwartet, got %#v", report.Missing)
+	}
+	if !reflect.DeepEqual(report.Keys, []string{"id", "name"}) {
+		t.Errorf("Schlüssel aller Elemente erwartet, got %#v", report.Keys)
+	}
+}
+
+// TestReportIgnoresEmptyList: Eine leere Liste ist keine Fehlbedienung —
+// dort ist schlicht nichts zu finden.
+func TestReportIgnoresEmptyList(t *testing.T) {
+	_, report := renderWithReport(t, `[]`, Options{Fields: []string{"id"}})
+	if len(report.Missing) != 0 {
+		t.Errorf("bei leerer Liste keine Meldung erwartet, got %#v", report.Missing)
+	}
+}
+
+func TestReportTruncatesLongKeyLists(t *testing.T) {
+	body := `{"a":1,"b":1,"c":1,"d":1,"e":1,"f":1,"g":1,"h":1,"i":1,"j":1}`
+	_, report := renderWithReport(t, body, Options{Fields: []string{"gibtsnicht"}})
+	if len(report.Keys) != 8 {
+		t.Errorf("auf 8 Schlüssel gekürzt erwartet, got %#v", report.Keys)
+	}
+	if !report.KeysTruncated {
+		t.Error("KeysTruncated erwartet")
+	}
+}
+
+// TestReportCountsNestedPaths: --fields contact.id trifft, obwohl id nicht
+// oben liegt.
+func TestReportCountsNestedPaths(t *testing.T) {
+	body := `{"contact":{"id":42},"success":true}`
+	_, report := renderWithReport(t, body, Options{Fields: []string{"contact.id", "contact.gibtsnicht"}})
+	if !reflect.DeepEqual(report.Missing, []string{"contact.gibtsnicht"}) {
+		t.Errorf("nur den unbekannten Unterpfad erwartet, got %#v", report.Missing)
+	}
+}
+
 func TestFieldsWithPretty(t *testing.T) {
 	got := render(t, `{"id":1,"titel":"Haus"}`, Options{Fields: []string{"titel"}, Pretty: true})
 	if !strings.Contains(got, "\"titel\": \"Haus\"") || strings.Contains(got, "\"id\"") {
@@ -112,7 +204,7 @@ func TestFieldsWithPretty(t *testing.T) {
 func TestNonJSONIsPassedThroughRaw(t *testing.T) {
 	yaml := "name: Ankauf\nstatuses:\n  - Neu\n"
 	buf := &bytes.Buffer{}
-	if err := Render(buf, []byte(yaml), "application/x-yaml", Options{Fields: []string{"name"}}); err != nil {
+	if _, err := Render(buf, []byte(yaml), "application/x-yaml", Options{Fields: []string{"name"}}); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	if buf.String() != yaml {
@@ -122,7 +214,7 @@ func TestNonJSONIsPassedThroughRaw(t *testing.T) {
 
 func TestEmptyBodyProducesNoOutput(t *testing.T) {
 	buf := &bytes.Buffer{}
-	if err := Render(buf, nil, "application/json", Options{}); err != nil {
+	if _, err := Render(buf, nil, "application/json", Options{}); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	if buf.String() != "" {
@@ -132,7 +224,7 @@ func TestEmptyBodyProducesNoOutput(t *testing.T) {
 
 func TestWriteErrorShape(t *testing.T) {
 	buf := &bytes.Buffer{}
-	if err := WriteError(buf, 403, "Kein Zugriff", "ORG_FORBIDDEN"); err != nil {
+	if err := WriteError(buf, 403, "Kein Zugriff", "ORG_FORBIDDEN", nil); err != nil {
 		t.Fatalf("WriteError: %v", err)
 	}
 	want := `{"error":true,"status":403,"message":"Kein Zugriff","code":"ORG_FORBIDDEN"}` + "\n"
@@ -141,9 +233,100 @@ func TestWriteErrorShape(t *testing.T) {
 	}
 }
 
+// TestWriteErrorKeepsEveryBackendField: api_error() erlaubt beliebige
+// Zusatzfelder — genau darin steckt die Lösung für den Agenten (welches Feld,
+// welche erlaubten Werte). Nichts davon darf unterwegs verloren gehen.
+func TestWriteErrorKeepsEveryBackendField(t *testing.T) {
+	details := map[string]any{
+		"message":      "Validierungsfehler.",
+		"errors":       map[string]any{"type": []any{"Invalid enum value task"}},
+		"valid_values": map[string]any{"type": []any{"ANRUF", "BESICHTIGUNG"}},
+	}
+	buf := &bytes.Buffer{}
+	if err := WriteError(buf, 400, "Validierungsfehler.", "", details); err != nil {
+		t.Fatalf("WriteError: %v", err)
+	}
+	want := `{"error":true,"status":400,"message":"Validierungsfehler.",` +
+		`"errors":{"type":["Invalid enum value task"]},` +
+		`"valid_values":{"type":["ANRUF","BESICHTIGUNG"]}}` + "\n"
+	if buf.String() != want {
+		t.Errorf("vollständiges Fehler-Payload erwartet\n got: %q\nwant: %q", buf.String(), want)
+	}
+}
+
+// TestWriteErrorKeepsNumbersExact: Ein Kontingentstand aus einer
+// 402-Plan-Limit-Antwort darf nicht durch float64 laufen.
+func TestWriteErrorKeepsNumbersExact(t *testing.T) {
+	details := map[string]any{
+		"message": "Plan-Limit erreicht.",
+		"code":    "PLAN_LIMIT",
+		"limit":   json.Number("25"),
+		"used":    json.Number("25"),
+		"upgrade": "https://immojump.de/tarife",
+	}
+	buf := &bytes.Buffer{}
+	if err := WriteError(buf, 402, "Plan-Limit erreicht.", "PLAN_LIMIT", details); err != nil {
+		t.Fatalf("WriteError: %v", err)
+	}
+	want := `{"error":true,"status":402,"message":"Plan-Limit erreicht.","code":"PLAN_LIMIT",` +
+		`"limit":25,"upgrade":"https://immojump.de/tarife","used":25}` + "\n"
+	if buf.String() != want {
+		t.Errorf("Zusatzfelder erwartet\n got: %q\nwant: %q", buf.String(), want)
+	}
+}
+
+// TestWriteErrorMovesCollidingKeysAside: Die CLI-eigenen Schlüssel error und
+// status behalten ihre Bedeutung — der Backend-Wert geht trotzdem nicht
+// verloren, sondern steht daneben.
+func TestWriteErrorMovesCollidingKeysAside(t *testing.T) {
+	details := map[string]any{
+		"error":  "Feld kaufpreis fehlt",
+		"status": "failed",
+	}
+	buf := &bytes.Buffer{}
+	if err := WriteError(buf, 400, "Feld kaufpreis fehlt", "", details); err != nil {
+		t.Fatalf("WriteError: %v", err)
+	}
+	want := `{"error":true,"status":400,"message":"Feld kaufpreis fehlt",` +
+		`"backend_error":"Feld kaufpreis fehlt","backend_status":"failed"}` + "\n"
+	if buf.String() != want {
+		t.Errorf("kollidierende Felder erwartet\n got: %q\nwant: %q", buf.String(), want)
+	}
+}
+
+// TestWriteErrorSkipsEchoedStatus: Ein Backend, das den Status nur spiegelt,
+// soll die Zeile nicht mit backend_status:400 aufblähen.
+func TestWriteErrorSkipsEchoedStatus(t *testing.T) {
+	buf := &bytes.Buffer{}
+	details := map[string]any{"message": "Nicht gefunden", "status": json.Number("404")}
+	if err := WriteError(buf, 404, "Nicht gefunden", "", details); err != nil {
+		t.Fatalf("WriteError: %v", err)
+	}
+	want := `{"error":true,"status":404,"message":"Nicht gefunden"}` + "\n"
+	if buf.String() != want {
+		t.Errorf("gespiegelten Status weglassen\n got: %q\nwant: %q", buf.String(), want)
+	}
+}
+
+func TestWriteWarningShape(t *testing.T) {
+	buf := &bytes.Buffer{}
+	err := WriteWarning(buf, "--fields hat nichts getroffen.", map[string]any{
+		"fields_missing": []string{"id"},
+		"top_level_keys": []string{"contact", "success"},
+	})
+	if err != nil {
+		t.Fatalf("WriteWarning: %v", err)
+	}
+	want := `{"warning":true,"message":"--fields hat nichts getroffen.",` +
+		`"fields_missing":["id"],"top_level_keys":["contact","success"]}` + "\n"
+	if buf.String() != want {
+		t.Errorf("Warnzeile erwartet\n got: %q\nwant: %q", buf.String(), want)
+	}
+}
+
 func TestWriteErrorDoesNotHTMLEscape(t *testing.T) {
 	buf := &bytes.Buffer{}
-	if err := WriteError(buf, 0, "Nutze --context <name>", "USAGE"); err != nil {
+	if err := WriteError(buf, 0, "Nutze --context <name>", "USAGE", nil); err != nil {
 		t.Fatalf("WriteError: %v", err)
 	}
 	if strings.Contains(buf.String(), `\u003c`) {
@@ -166,7 +349,7 @@ func TestMarshalWithoutHTMLEscaping(t *testing.T) {
 
 func TestWriteErrorOmitsEmptyStatusAndCode(t *testing.T) {
 	buf := &bytes.Buffer{}
-	if err := WriteError(buf, 0, "Unbekannter Befehl \"foo\"", ""); err != nil {
+	if err := WriteError(buf, 0, "Unbekannter Befehl \"foo\"", "", nil); err != nil {
 		t.Fatalf("WriteError: %v", err)
 	}
 	want := `{"error":true,"message":"Unbekannter Befehl \"foo\""}` + "\n"

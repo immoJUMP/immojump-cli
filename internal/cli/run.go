@@ -106,8 +106,50 @@ func (r *runner) fail(err error) int {
 	if !errors.As(err, &apiErr) {
 		apiErr = &api.Error{Message: err.Error(), Exit: 1}
 	}
-	_ = output.WriteError(r.stderr, apiErr.Status, apiErr.Message, apiErr.Code)
+	_ = output.WriteError(r.stderr, apiErr.Status, apiErr.Message, apiErr.Code, apiErr.Details)
 	return apiErr.ExitCode()
+}
+
+// warnMissingFields meldet auf stderr, wenn --fields ins Leere zeigt. Kein
+// Fehler (Exit bleibt 0) und nichts auf stdout — aber ohne den Hinweis hält
+// ein Agent das `{}` einer verpackten Antwort für einen gescheiterten Aufruf
+// und legt im Zweifel doppelt an.
+func (r *runner) warnMissingFields(report output.Report) {
+	if len(report.Missing) == 0 {
+		return
+	}
+	keys := joinOrNone(report.Keys)
+	if report.KeysTruncated {
+		keys += ", …"
+	}
+	var message string
+	if len(report.Missing) == len(report.Requested) {
+		message = fmt.Sprintf(
+			"--fields hat nichts getroffen: keines der angeforderten Felder kommt in der Antwort vor. "+
+				"Vorhandene Top-Level-Schlüssel: %s. Verschachtelte Felder mit Punkt ansprechen, "+
+				"z. B. --fields <schlüssel>.<feld>.", keys)
+	} else {
+		message = fmt.Sprintf("--fields: %d von %d Feldern kommen in der Antwort nicht vor. "+
+			"Vorhandene Top-Level-Schlüssel: %s.", len(report.Missing), len(report.Requested), keys)
+	}
+	details := map[string]any{
+		"fields_missing": report.Missing,
+		"top_level_keys": report.Keys,
+	}
+	if report.KeysTruncated {
+		details["top_level_keys_truncated"] = true
+	}
+	_ = output.WriteWarning(r.stderr, message, details)
+}
+
+// render schreibt die Nutzdaten und hängt den --fields-Hinweis an.
+func (r *runner) render(body []byte, contentType string, flags *flagValues) error {
+	report, err := output.Render(r.stdout, body, contentType, r.outputOptions(flags))
+	if err != nil {
+		return err
+	}
+	r.warnMissingFields(report)
+	return nil
 }
 
 func (r *runner) dispatch(args []string) int {
@@ -478,7 +520,7 @@ func (r *runner) newClient(resolved config.Resolved, flags *flagValues) (*api.Cl
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: timeout}
 	}
-	return &api.Client{
+	client := &api.Client{
 		BaseURL: resolved.BaseURL,
 		Org:     resolved.Org,
 		Token:   resolved.Token,
@@ -486,7 +528,15 @@ func (r *runner) newClient(resolved config.Resolved, flags *flagValues) (*api.Cl
 		// Auch ein injizierter Client muss den Timeout einhalten.
 		Timeout: timeout,
 		Env:     r.getenv,
-	}, nil
+	}
+	if flags.bool("verbose") {
+		// Nur Methode und URL: Das Token steht im Header und hat auf stderr
+		// nichts verloren — auch nicht gekürzt.
+		client.Trace = func(method, url string) {
+			_ = output.WriteTrace(r.stderr, method, url)
+		}
+	}
+	return client, nil
 }
 
 func (r *runner) runHTTP(spec Spec, args []string, flags *flagValues) int {
@@ -522,7 +572,7 @@ func (r *runner) runHTTP(spec Spec, args []string, flags *flagValues) int {
 	if err != nil {
 		return r.fail(err)
 	}
-	if err := output.Render(r.stdout, response.Body, response.ContentType, r.outputOptions(flags)); err != nil {
+	if err := r.render(response.Body, response.ContentType, flags); err != nil {
 		return r.fail(err)
 	}
 	return 0
@@ -533,7 +583,7 @@ func (r *runner) runLocal(spec Spec, args []string, flags *flagValues) int {
 	case SpecialVersion:
 		return r.printVersion()
 	case SpecialDocs:
-		return r.runDocs()
+		return r.runDocs(args)
 	case SpecialSchema:
 		return r.runSchema(args, flags)
 	case SpecialContextList, SpecialContextCurrent, SpecialContextUse, SpecialContextDelete:

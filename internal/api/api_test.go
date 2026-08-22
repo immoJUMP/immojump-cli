@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -177,6 +178,174 @@ func TestErrorFallsBackToErrorKeyAndRawBody(t *testing.T) {
 	}
 	if apiErr.ExitCode() != 8 {
 		t.Errorf("Exit 8 erwartet, got %d", apiErr.ExitCode())
+	}
+}
+
+// TestErrorKeepsEveryDetailField: Das Backend liefert bei einem
+// Validierungsfehler die Lösung frei Haus (welches Feld, welche Werte) —
+// api_error() erlaubt dafür beliebige Zusatzfelder. Das CLI muss das komplette
+// Payload weiterreichen, nicht nur message und code.
+func TestErrorKeepsEveryDetailField(t *testing.T) {
+	// Wortlaut wie gegen die Produktion gemessen.
+	body := `{"errors":{"type":["Invalid enum value task"]},"message":"Validierungsfehler.",` +
+		`"valid_values":{"type":["ANRUF","BESICHTIGUNG","BRIEF","E-MAIL","MEETING","NOTIZ","SONSTIGES"]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv).Do(Request{Method: "POST", Path: "/api/activities/activities"})
+	apiErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("*api.Error erwartet, got %T (%v)", err, err)
+	}
+	if apiErr.Message != "Validierungsfehler." {
+		t.Errorf("Backend-Meldung erwartet, got %q", apiErr.Message)
+	}
+	if apiErr.Details == nil {
+		t.Fatal("Details mit dem kompletten Payload erwartet")
+	}
+	for _, key := range []string{"errors", "valid_values", "message"} {
+		if _, ok := apiErr.Details[key]; !ok {
+			t.Errorf("Feld %q soll erhalten bleiben, Details: %#v", key, apiErr.Details)
+		}
+	}
+	values, _ := apiErr.Details["valid_values"].(map[string]any)
+	types, _ := values["type"].([]any)
+	if len(types) != 7 || types[0] != "ANRUF" {
+		t.Errorf("valid_values unverändert erwartet, got %#v", values)
+	}
+}
+
+// TestErrorKeepsNumbersExact: Eine 402-Plan-Limit-Antwort trägt den
+// Kontingentstand — der darf nicht durch float64 laufen.
+func TestErrorKeepsNumbersExact(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(402)
+		_, _ = w.Write([]byte(`{"message":"Limit erreicht.","code":"PLAN_LIMIT","limit":25,"used":25}`))
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv).Do(Request{Method: "POST", Path: "/api/contacts"})
+	apiErr := err.(*Error)
+	number, ok := apiErr.Details["limit"].(json.Number)
+	if !ok {
+		t.Fatalf("json.Number erwartet, got %T", apiErr.Details["limit"])
+	}
+	if number.String() != "25" {
+		t.Errorf("25 erwartet, got %s", number)
+	}
+	if apiErr.Code != "PLAN_LIMIT" {
+		t.Errorf("Code erwartet, got %q", apiErr.Code)
+	}
+}
+
+// TestNonJSONErrorIsCondensed: Eine 404-HTML-Seite als Meldung durchzureichen
+// ist für einen Agenten unbrauchbar — er braucht die Einordnung, nicht die
+// halbe Seite.
+func TestNonJSONErrorIsCondensed(t *testing.T) {
+	page := "<!doctype html>\n<html lang=en>\n<title>404 Not Found</title>\n" +
+		"<h1>Not Found</h1>\n<p>The requested URL was not found on the server.</p>\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(404)
+		_, _ = w.Write([]byte(page))
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv).Do(Request{Method: "GET", Path: "/api/gibtsnicht"})
+	apiErr := err.(*Error)
+	if strings.Contains(apiErr.Message, "<") || strings.Contains(apiErr.Message, "\n") {
+		t.Errorf("Meldung ohne HTML und ohne Zeilenumbrüche erwartet, got %q", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "HTTP 404") {
+		t.Errorf("Status in der Meldung erwartet, got %q", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.Message, "Route") || !strings.Contains(apiErr.Message, "kein JSON") {
+		t.Errorf("Einordnung (Route/kein JSON) erwartet, got %q", apiErr.Message)
+	}
+	raw, ok := apiErr.Details["raw"].(string)
+	if !ok {
+		t.Fatalf("Rohtext als Feld raw erwartet, Details: %#v", apiErr.Details)
+	}
+	if strings.Contains(raw, "<") || strings.Contains(raw, "\n") {
+		t.Errorf("raw ohne Tags und Umbrüche erwartet, got %q", raw)
+	}
+	if !strings.Contains(raw, "Not Found") {
+		t.Errorf("raw soll den Text der Seite tragen, got %q", raw)
+	}
+}
+
+func TestNonJSONErrorRawIsTruncated(t *testing.T) {
+	long := "<html><body>" + strings.Repeat("kaputt ", 200) + "</body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(long))
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv).Do(Request{Method: "GET", Path: "/api/contacts"})
+	raw, _ := err.(*Error).Details["raw"].(string)
+	if len([]rune(raw)) > 201 {
+		t.Errorf("auf ~200 Zeichen gekürzt erwartet, got %d", len([]rune(raw)))
+	}
+	if !strings.HasSuffix(raw, "…") {
+		t.Errorf("Kürzungszeichen erwartet, got %q", raw)
+	}
+}
+
+// TestJSONErrorWithoutMessageKeepsFields: Ein JSON-Objekt ohne message-Feld
+// braucht keinen Rohtext — die Felder stehen ja da.
+func TestJSONErrorWithoutMessageKeepsFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(422)
+		_, _ = w.Write([]byte(`{"errors":{"name":["Missing data"]}}`))
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv).Do(Request{Method: "POST", Path: "/api/v2/immobilien"})
+	apiErr := err.(*Error)
+	if !strings.Contains(apiErr.Message, "HTTP 422") {
+		t.Errorf("Status als Meldung erwartet, got %q", apiErr.Message)
+	}
+	if _, ok := apiErr.Details["errors"]; !ok {
+		t.Errorf("errors soll erhalten bleiben, Details: %#v", apiErr.Details)
+	}
+	if _, ok := apiErr.Details["raw"]; ok {
+		t.Error("bei JSON kein raw-Feld erwartet")
+	}
+}
+
+// TestTraceReportsMethodAndURL: Ohne die tatsächlich aufgerufene URL lässt
+// sich ein 404 nicht einordnen — falscher Pfad oder Route fehlt auf der
+// Instanz? Der Token darf dabei nie auftauchen.
+func TestTraceReportsMethodAndURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	var method, target string
+	c := testClient(srv)
+	c.Trace = func(m, u string) { method, target = m, u }
+
+	query := url.Values{}
+	query.Set("slim", "true")
+	if _, err := c.Do(Request{Method: "get", Path: "/api/v2/immobilien", Query: query}); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if method != "GET" {
+		t.Errorf("normalisierte Methode erwartet, got %q", method)
+	}
+	if target != srv.URL+"/api/v2/immobilien?slim=true" {
+		t.Errorf("vollständige URL erwartet, got %q", target)
+	}
+	if strings.Contains(target, "tok-1") {
+		t.Error("der Token darf in der URL nirgends auftauchen")
 	}
 }
 

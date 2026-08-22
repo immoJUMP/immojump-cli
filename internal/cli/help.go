@@ -119,6 +119,15 @@ func (r *runner) printCommandHelp(spec Spec) {
 		_ = w.Flush()
 	}
 
+	if len(spec.QueryHints) > 0 {
+		fmt.Fprintln(r.stdout, "\nBekannte Query-Parameter (per -q key=value):")
+		w := newTabwriter(r.stdout)
+		for _, hint := range spec.QueryHints {
+			fmt.Fprintf(w, "  %s\t%s\n", hint.Name, hint.Summary)
+		}
+		_ = w.Flush()
+	}
+
 	if hint := bodyHint(spec); hint != "" {
 		// Die Backticks sind für REFERENCE.md gedacht, im Terminal stören sie.
 		fmt.Fprintf(r.stdout, "\nBody: %s\n", strings.ReplaceAll(hint, "`", ""))
