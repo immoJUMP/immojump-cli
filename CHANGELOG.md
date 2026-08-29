@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/immoJUMP/immojump-cli/compare/v0.4.0...v0.4.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **install:** Download ueberlebt das Fenster nach einer Veroeffentlichung ([32cf2aa](https://github.com/immoJUMP/immojump-cli/commit/32cf2aa199c98cb9807a886780c65d20e7187251))
+
 ## [0.4.0](https://github.com/immoJUMP/immojump-cli/compare/v0.3.0...v0.4.0) (2026-08-29)
 
 
