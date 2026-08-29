@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/immoJUMP/immojump-cli/compare/v0.2.0...v0.3.0) (2026-08-29)
+
+
+### Features
+
+* **documents:** publish und unpublish aufnehmen ([a577823](https://github.com/immoJUMP/immojump-cli/commit/a5778238b8ef21d52427d132d332b235fbd5e96a))
+
 ## [0.2.0](https://github.com/immoJUMP/immojump-cli/compare/v0.1.0...v0.2.0) (2026-08-22)
 
 
