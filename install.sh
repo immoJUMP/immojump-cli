@@ -77,9 +77,63 @@ arbeitsordner="$(mktemp -d)"
 # shellcheck disable=SC2064 # Pfad soll jetzt aufgeloest werden, nicht beim Exit.
 trap "rm -rf '$arbeitsordner'" EXIT INT TERM
 
+# Den Tag hinter "latest" ueber die API aufloesen.
+#
+# Noetig, weil GitHub die Weiterleitung `releases/latest/download/...` kurz
+# nach einer Veroeffentlichung noch mit 404 beantwortet, waehrend die URL mit
+# ausgeschriebener Version bereits liefert. Genau in dieses Fenster laufen
+# Leute, die zufaellig direkt nach einem Release installieren.
+#
+# Der API-Aufruf passiert deshalb erst im Fehlerfall — im Normalfall kostet
+# er nichts und das anonyme Rate-Limit bleibt unangetastet.
+neuester_tag() {
+	lade "https://api.github.com/repos/${REPO}/releases/latest" \
+		"${arbeitsordner}/release.json" 2>/dev/null || return 1
+	sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+		"${arbeitsordner}/release.json" | head -1
+}
+
 hinweis "Lade ${datei} (${VERSION}) …"
-lade "${basis}/${datei}" "${arbeitsordner}/${datei}" ||
-	fehler "Download fehlgeschlagen: ${basis}/${datei}"
+
+ziel_datei="${arbeitsordner}/${datei}"
+umweg_versucht=0
+geladen=0
+
+versuch=1
+while [ "$versuch" -le 3 ]; do
+	if lade "${basis}/${datei}" "$ziel_datei" 2>/dev/null; then
+		geladen=1
+		break
+	fi
+
+	# Erster Fehlschlag mit "latest": auf die ausgeschriebene Version wechseln.
+	if [ "$VERSION" = "latest" ] && [ "$umweg_versucht" -eq 0 ]; then
+		umweg_versucht=1
+		tag="$(neuester_tag || true)"
+		if [ -n "${tag:-}" ]; then
+			hinweis "\"latest\" antwortet gerade nicht — versuche ${tag} direkt."
+			basis="https://github.com/${REPO}/releases/download/${tag}"
+			continue
+		fi
+	fi
+
+	versuch=$((versuch + 1))
+	if [ "$versuch" -le 3 ]; then
+		hinweis "Fehlgeschlagen, neuer Versuch in 3 Sekunden …"
+		sleep 3
+	fi
+done
+
+if [ "$geladen" -ne 1 ]; then
+	echo "Fehler: Download fehlgeschlagen: ${basis}/${datei}" >&2
+	echo "" >&2
+	echo "Falls gerade eben eine neue Version erschienen ist, braucht GitHub" >&2
+	echo "einen Moment, bis die Dateien ueberall abrufbar sind. In einer Minute" >&2
+	echo "noch einmal versuchen — oder eine Version festnageln:" >&2
+	echo "  curl -fsSL .../install.sh | IMMOJUMP_VERSION=v0.3.0 sh" >&2
+	echo "Alle Versionen: https://github.com/${REPO}/releases" >&2
+	exit 1
+fi
 
 # --- Checksumme pruefen -----------------------------------------------------
 # Ohne Pruefung waere das hier ein „curl | sh" auf eine Binaerdatei — die

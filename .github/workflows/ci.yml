@@ -57,10 +57,8 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck install.sh
 
-      - name: Gegen das aktuelle Release ausfuehren
-        run: |
-          IMMOJUMP_INSTALL_DIR="$HOME/bin" sh ./install.sh
-          "$HOME/bin/immojump" --version
+      - name: Verhaltenstests
+        run: sh test/install_test.sh
 
   release-please:
     if: github.event_name == 'push'
@@ -110,3 +108,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload ${{ needs.release-please.outputs.tag_name }} dist/* --clobber
+
+      # GitHub beantwortet `releases/latest/download/...` noch eine Weile mit
+      # 404, nachdem das Release veroeffentlicht und die Assets hochgeladen
+      # sind. Wer in dem Fenster installiert, laeuft ins Leere (beobachtet am
+      # 29.08.2026 nach v0.4.0). Der Schritt verkuerzt das Fenster nicht, aber
+      # er macht es sichtbar und meldet Erfolg erst, wenn der Weg, den Kunden
+      # nehmen, tatsaechlich funktioniert.
+      - name: Warten, bis der Download oeffentlich ausgeliefert wird
+        run: |
+          url="https://github.com/${{ github.repository }}/releases/latest/download/immojump-linux-amd64"
+          for versuch in $(seq 1 30); do
+            if curl -fsSL -o /dev/null "$url"; then
+              echo "Verfuegbar nach ${versuch} Versuch(en)."
+              exit 0
+            fi
+            echo "Noch nicht verfuegbar (Versuch ${versuch}) …"
+            sleep 10
+          done
+          echo "::error::latest/download liefert nach fuenf Minuten noch nicht aus"
+          exit 1
