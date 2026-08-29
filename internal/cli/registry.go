@@ -789,6 +789,24 @@ var Registry = []Spec{
 		Example: "immojump documents delete 11",
 	},
 	{
+		// external, nicht write: Veroeffentlichen legt die Datei unbefristet
+		// und ohne Anmeldung offen ins Netz (ACL public-read, feste URL). Das
+		// ist die haertere Aktion als ein Freigabe-Link — der laeuft ab, kann
+		// ein Passwort tragen und ist widerrufbar.
+		Resource: "documents", Verb: "publish", Risk: RiskExternal,
+		Summary: "HTML-Dokument als oeffentliche Seite veroeffentlichen (dauerhaft ohne Anmeldung erreichbar)",
+		Method:  "POST", Path: "/api/documents/documents/{id}/publish",
+		Args:    idArg("ID des HTML-Dokuments"),
+		Example: "immojump documents publish 11",
+	},
+	{
+		Resource: "documents", Verb: "unpublish", Risk: RiskExternal,
+		Summary: "Veroeffentlichung eines HTML-Dokuments aufheben",
+		Method:  "POST", Path: "/api/documents/documents/{id}/unpublish",
+		Args:    idArg("ID des HTML-Dokuments"),
+		Example: "immojump documents unpublish 11",
+	},
+	{
 		Resource: "documents", Verb: "analyze", Risk: RiskWrite,
 		Summary: "KI-Analyse eines Dokuments starten",
 		Method:  "POST", Path: "/api/documents/documents/{id}/analyze",

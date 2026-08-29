@@ -11,6 +11,9 @@ func TestReadonlyBlocksEverythingButRead(t *testing.T) {
 		{"--readonly", "contacts", "delete", "42"},                      // destructive
 		{"--readonly", "shares", "create", "--immobilie", "5"},          // external
 		{"--readonly", "shares", "revoke", "7"},                         // write
+		// publish stellt die Datei unbefristet und ohne Anmeldung ins Netz —
+		// haerter als ein Freigabe-Link, der ablaeuft und widerrufbar ist.
+		{"--readonly", "documents", "publish", "11"}, // external
 	}
 	for _, args := range blocked {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
