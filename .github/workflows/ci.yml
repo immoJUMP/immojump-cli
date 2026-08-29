@@ -35,6 +35,33 @@ jobs:
       - name: Lint, Tests, Referenz-Abgleich
         run: make ci
 
+  # Der Installationsweg ist das, was Kunden tatsaechlich benutzen — er wird
+  # deshalb wirklich ausgefuehrt, nicht nur syntaktisch geprueft. Geprueft wird
+  # dabei das aktuell VEROEFFENTLICHTE Release (das Skript zeigt auf "latest"),
+  # nicht der Build dieses Laufs: Der Job faengt also Skriptfehler und kaputte
+  # Release-Assets ab, laeuft aber bewusst neben den Release-Jobs statt vor
+  # ihnen — sonst wuerde er sich selbst blockieren, solange es noch kein
+  # Release gibt.
+  install-script:
+    name: Installationsskript
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Syntax pruefen
+        run: sh -n install.sh
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck install.sh
+
+      - name: Gegen das aktuelle Release ausfuehren
+        run: |
+          IMMOJUMP_INSTALL_DIR="$HOME/bin" sh ./install.sh
+          "$HOME/bin/immojump" --version
+
   release-please:
     if: github.event_name == 'push'
     needs: test
