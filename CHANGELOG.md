@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/immoJUMP/immojump-cli/compare/v0.3.0...v0.4.0) (2026-08-29)
+
+
+### Features
+
+* **install:** Installationsskript und Direkt-Download dokumentieren ([b0356df](https://github.com/immoJUMP/immojump-cli/commit/b0356dfc25ed3cf21c7cecac31718b410c4d371a))
+
 ## [0.3.0](https://github.com/immoJUMP/immojump-cli/compare/v0.2.0...v0.3.0) (2026-08-29)
 
 
