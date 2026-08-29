@@ -308,3 +308,31 @@ func TestDocsAndSchemaWorkWithoutToken(t *testing.T) {
 		}
 	}
 }
+
+// Veroeffentlichen ist die haerteste Stufe unterhalb von destructive: Die
+// Datei liegt danach unbefristet und ohne Anmeldung im Netz, es gibt kein
+// Ablaufdatum und kein Passwort. Ein Freigabe-Link ist dagegen widerrufbar.
+func TestDocumentsPublishIstExternal(t *testing.T) {
+	h := newHarness(t)
+
+	var byResource struct {
+		Commands []struct {
+			Resource string `json:"resource"`
+			Verb     string `json:"verb"`
+			Risk     string `json:"risk"`
+		} `json:"commands"`
+	}
+
+	for _, verb := range []string{"publish", "unpublish"} {
+		_, stdout, _ := h.run("schema", "documents", verb)
+		if err := json.Unmarshal([]byte(stdout), &byResource); err != nil {
+			t.Fatalf("JSON erwartet fuer %s: %v", verb, err)
+		}
+		if len(byResource.Commands) != 1 {
+			t.Fatalf("genau ein Befehl fuer documents %s erwartet, got %+v", verb, byResource.Commands)
+		}
+		if byResource.Commands[0].Risk != "external" {
+			t.Errorf("documents %s: Risk external erwartet, got %q", verb, byResource.Commands[0].Risk)
+		}
+	}
+}

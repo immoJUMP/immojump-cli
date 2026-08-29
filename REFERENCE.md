@@ -879,6 +879,8 @@ Dokumente hochladen, analysieren, verwalten
 | `documents upload` | write | `POST /api/documents/documents/bulk-upload` |
 | `documents rename` | write | `PUT /api/documents/documents/{id}/rename` |
 | `documents delete` | destructive | `DELETE /api/documents/documents/{id}` |
+| `documents publish` | external | `POST /api/documents/documents/{id}/publish` |
+| `documents unpublish` | external | `POST /api/documents/documents/{id}/unpublish` |
 | `documents analyze` | write | `POST /api/documents/documents/{id}/analyze` |
 | `documents analyze-details` | write | `POST /api/documents/documents/{id}/analyze/details` |
 | `documents mark-reviewed` | write | `POST /api/documents/documents/{id}/mark-reviewed` |
@@ -934,6 +936,30 @@ Dokument löschen
 - **Argumente:**
   - `id` — ID des Dokuments
 - **Beispiel:** `immojump documents delete 11`
+
+#### documents publish
+
+HTML-Dokument als oeffentliche Seite veroeffentlichen (dauerhaft ohne Anmeldung erreichbar)
+
+- **Aufruf:** `immojump documents publish <id>`
+- **Endpoint:** `POST /api/documents/documents/{id}/publish`
+- **Risk:** `external`
+- **Argumente:**
+  - `id` — ID des HTML-Dokuments
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump documents publish 11`
+
+#### documents unpublish
+
+Veroeffentlichung eines HTML-Dokuments aufheben
+
+- **Aufruf:** `immojump documents unpublish <id>`
+- **Endpoint:** `POST /api/documents/documents/{id}/unpublish`
+- **Risk:** `external`
+- **Argumente:**
+  - `id` — ID des HTML-Dokuments
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump documents unpublish 11`
 
 #### documents analyze
 

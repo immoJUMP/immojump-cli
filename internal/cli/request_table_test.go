@@ -152,6 +152,12 @@ func TestCommandRequestTable(t *testing.T) {
 		{name: "tags set leer", args: []string{"tags", "set", "contact", "42", "--tag-ids", ""},
 			method: "PUT", path: "/api/tags/contact/42", body: `[]`},
 
+		// --- documents publish --------------------------------------------
+		{name: "documents publish", args: []string{"documents", "publish", "11"},
+			method: "POST", path: "/api/documents/documents/11/publish", body: `{}`},
+		{name: "documents unpublish", args: []string{"documents", "unpublish", "11"},
+			method: "POST", path: "/api/documents/documents/11/unpublish", body: `{}`},
+
 		// --- shares -------------------------------------------------------
 		{name: "shares list", args: []string{"shares", "list"}, method: "GET", path: "/api/share-links"},
 		{name: "shares list gefiltert", args: []string{"shares", "list", "--entity-type", "immobilie", "--entity-id", "5"},
