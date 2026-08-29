@@ -33,24 +33,57 @@ Wahl in Shell-Umgebungen, Skripten, CI und überall dort, wo Kontext teuer ist.
 
 ## Installation
 
-Solange das Repo privat ist:
+Ein Befehl, kein Go nötig:
 
 ```bash
-git clone git@github.com:immoJUMP/immojump-cli.git
-cd immojump-cli
-make install          # nach $GOBIN bzw. $GOPATH/bin
+curl -fsSL https://raw.githubusercontent.com/immoJUMP/immojump-cli/main/install.sh | sh
 ```
 
-Oder direkt über `go install` — dafür muss Go wissen, dass es den Modulproxy
-umgehen soll:
+Das Skript erkennt System und Architektur, lädt das passende Binary vom
+GitHub-Release, **prüft die Checksumme** und legt es nach `/usr/local/bin`
+(bzw. `~/.local/bin`, wenn dort kein Schreibrecht besteht). Derselbe Befehl
+aktualisiert eine vorhandene Installation.
+
+Zwei Schalter, damit es sich in Dockerfiles und Agent-Container einbauen lässt:
 
 ```bash
-export GOPRIVATE=github.com/immoJUMP/*
+# Feste Version statt "latest" — für reproduzierbare Builds
+curl -fsSL .../install.sh | IMMOJUMP_VERSION=v0.3.0 sh
+
+# Eigenes Zielverzeichnis, ohne sudo
+curl -fsSL .../install.sh | IMMOJUMP_INSTALL_DIR=$HOME/bin sh
+```
+
+### Ohne Skript: direkter Download
+
+Die Release-URLs sind stabil und brauchen keine Anmeldung — praktisch für
+`Dockerfile`, `Makefile` oder ein Ansible-Playbook:
+
+```
+https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-linux-amd64
+https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-linux-arm64
+https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-darwin-arm64
+https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-darwin-amd64
+```
+
+Für eine feste Version `latest/download` durch `download/v0.3.0` ersetzen. Die
+Checksummen liegen als `SHA256SUMS.txt` am selben Release.
+
+```dockerfile
+ARG IMMOJUMP_VERSION=v0.3.0
+RUN curl -fsSL -o /usr/local/bin/immojump \
+      "https://github.com/immoJUMP/immojump-cli/releases/download/${IMMOJUMP_VERSION}/immojump-linux-amd64" \
+ && chmod +x /usr/local/bin/immojump
+```
+
+### Aus dem Quellcode
+
+```bash
 go install github.com/immoJUMP/immojump-cli/cmd/immojump@latest
 ```
 
-Für Agent-Container (Linux) baut `make release-build` fertige Binaries nach
-`dist/` — linux/amd64, linux/arm64, darwin/arm64, darwin/amd64.
+Oder im Klon `make install` (nach `$GOBIN` bzw. `$GOPATH/bin`).
+`make release-build` baut alle vier Binaries nach `dist/`.
 
 ## Schnellstart
 
