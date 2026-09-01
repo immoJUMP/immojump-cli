@@ -23,6 +23,7 @@ const (
 	EnvContext   = "IMMOJUMP_CONTEXT"
 	EnvConfig    = "IMMOJUMP_CONFIG"
 	EnvExtraURLs = "IMMOJUMP_EXTRA_BASE_URLS"
+	EnvOutput    = "IMMOJUMP_OUTPUT"
 	// EnvExtraURLsMCP ist der MCP-kompatible Alias von EnvExtraURLs.
 	EnvExtraURLsMCP = "ALLOWED_BASE_URLS_EXTRA"
 )

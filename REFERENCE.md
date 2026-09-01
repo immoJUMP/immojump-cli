@@ -38,6 +38,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `--body <wert>` | Kompletter Body: JSON, @datei oder - für stdin |
 | `--fields <wert>` | Ausgabe auf Felder projizieren, z. B. id,adresse.stadt |
 | `--pretty` | Ausgabe einrücken (für Menschen) |
+| `--table` | Ausgabe als Tabelle (für Menschen; Env: IMMOJUMP_OUTPUT=table) |
 | `--readonly` | Nur lesende Befehle zulassen |
 | `--allow <wert>` | Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW) |
 | `--idempotency-key <wert>` | Wird als Idempotency-Key-Header mitgeschickt |
@@ -122,6 +123,7 @@ Context anlegen oder aktualisieren und gegen die Instanz prüfen
   - `--token <wert>` — API-Token (Einstellungen → API-Zugang)
   - `--token-env <wert>` — Name der Env-Variablen mit dem Token (statt Klartext)
   - `--organisation <wert>` — Organisations-ID für diesen Context
+  - `--no-browser` — Browser nicht öffnen, nur die Adresse der Token-Seite nennen
   - `--full` — Vollständige Antwort von /api/user/me ausgeben statt id/username plus Rolle
 - **Beispiel:** `immojump auth login --context prod --base-url https://immojump.de --organisation <org-id> --token <token>`
 

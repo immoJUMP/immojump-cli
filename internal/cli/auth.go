@@ -74,8 +74,15 @@ func (r *runner) runAuthLogin(spec Spec, flags *flagValues) int {
 		}
 	}
 	if token == "" {
-		return r.fail(configErr(
-			"Kein Token angegeben. Nutze --token <token> oder --token-env <VARIABLE> (Token unter Einstellungen → API-Zugang)."))
+		// Kein Token per Flag, Context oder Umgebung: Am Terminal führt der
+		// Browser-Flow zur Token-Seite, sonst wird stdin gelesen. Das ersetzt
+		// den früheren Abbruch, der den Nutzer ohne Weg zurückliess.
+		fromInput, inputErr := r.readTokenInteractively(ctx.BaseURL, flags)
+		if inputErr != nil {
+			return r.fail(inputErr)
+		}
+		token = fromInput
+		ctx.Token, ctx.TokenEnv = token, ""
 	}
 
 	// Die Allowlist prüft api.Client.Do ohnehin, bevor ein Byte rausgeht.

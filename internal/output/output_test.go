@@ -427,3 +427,14 @@ func TestFieldsStillProjectNestedObjects(t *testing.T) {
 		t.Errorf("got %s, want %s", got, want)
 	}
 }
+
+// renderRaw rendert mit beliebigem Content-Type (für Nicht-JSON-Antworten).
+func renderRaw(t *testing.T, body, contentType string, opts Options) (string, Report) {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	report, err := Render(buf, []byte(body), contentType, opts)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	return buf.String(), report
+}
