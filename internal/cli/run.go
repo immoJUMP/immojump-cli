@@ -162,6 +162,10 @@ func (r *runner) dispatch(args []string) int {
 		return r.printVersion()
 	}
 
+	if err := r.checkOutputEnv(); err != nil {
+		return r.fail(err)
+	}
+
 	wantHelp := flags.bool("help") || flags.bool("h")
 	if len(positionals) > 0 && positionals[0] == "help" {
 		wantHelp = true
@@ -469,6 +473,26 @@ func (r *runner) outputOptions(flags *flagValues) output.Options {
 	return output.Options{
 		Pretty: flags.bool("pretty"),
 		Fields: config.SplitCSV(flags.get("fields")),
+		Table:  flags.bool("table") || r.envOutput() == "table",
+	}
+}
+
+// envOutput liest IMMOJUMP_OUTPUT normalisiert. Geprüft wird der Wert in
+// checkOutputEnv, bevor ein Request rausgeht.
+func (r *runner) envOutput() string {
+	return strings.ToLower(strings.TrimSpace(r.getenv(config.EnvOutput)))
+}
+
+// checkOutputEnv lehnt einen unbekannten Wert ab, statt still auf JSON
+// zurückzufallen — sonst hielte der Aufrufer sein Format für gesetzt und
+// bekäme wortlos ein anderes. Dieselbe Fail-closed-Regel wie bei --allow.
+func (r *runner) checkOutputEnv() error {
+	switch r.envOutput() {
+	case "", "json", "table":
+		return nil
+	default:
+		return configErr("%s kennt nur json oder table, bekommen: %q",
+			config.EnvOutput, r.getenv(config.EnvOutput))
 	}
 }
 

@@ -18,6 +18,10 @@ type Options struct {
 	Pretty bool
 	// Fields sind Pfade wie "id" oder "adresse.stadt".
 	Fields []string
+	// Table rendert für Menschen statt für Agenten. Bewusst ein Schalter und
+	// keine TTY-Erkennung: Agenten-Runtimes laufen oft in einem PTY und
+	// bekämen sonst unangekündigt Tabellen statt JSON.
+	Table bool
 }
 
 // Report sagt, was --fields in der Antwort gefunden hat. Ohne ihn bekäme ein
@@ -58,6 +62,17 @@ func Render(w io.Writer, body []byte, contentType string, opts Options) (Report,
 		}
 		payload = projected
 		report = collector.report()
+	}
+
+	// Tabelle nach der Projektion: --fields grenzt ein, --table stellt dar.
+	if opts.Table {
+		done, err := renderTable(w, payload)
+		if err != nil {
+			return report, err
+		}
+		if done {
+			return report, nil
+		}
 	}
 
 	buf := &bytes.Buffer{}

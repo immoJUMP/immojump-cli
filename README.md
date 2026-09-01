@@ -87,9 +87,22 @@ Oder im Klon `make install` (nach `$GOBIN` bzw. `$GOPATH/bin`).
 
 ## Schnellstart
 
-Token unter **Einstellungen → API-Zugang** erzeugen, dann einen Context anlegen.
+Der kürzeste Weg — `auth login` ohne Argumente öffnet die Token-Seite im
+Browser und wartet auf den eingefügten Token:
+
+```bash
+immojump auth login
+# Browser wird geöffnet: https://immojump.de/settings/api-access
+# Token einfügen und Enter drücken: ▏
+```
+
+Ein mitkopiertes `Bearer ` und Leerraum werden abgeschnitten. Auf einem Server
+ohne Browser: `immojump auth login --no-browser`, oder den Token hineinpipen —
+`echo "$TOKEN" | immojump auth login`.
+
 Contexts funktionieren wie bei `kubectl`: eine Instanz plus eine Organisation
 plus ein Token, gespeichert in `~/.config/immojump/config.json` (Modus 0600).
+Für Skripte und CI geht weiterhin alles explizit:
 
 ```bash
 immojump auth login \
@@ -167,6 +180,33 @@ Backend-Schemas geprüft.
 Nutzdaten gehen nach **stdout**, Fehler als eine JSON-Zeile nach **stderr**.
 Antworten, die kein JSON sind (z. B. `pipelines export`), werden roh
 durchgereicht.
+
+## Am Terminal: `--table`
+
+Der Default ist NDJSON — eine Zeile, maschinenlesbar. Wer selbst davorsitzt,
+schaltet mit `--table` auf eine Tabelle um:
+
+```console
+$ immojump email folders --table
+display_name  name     total_count  type     unread_count
+────────────  ───────  ───────────  ───────  ────────────
+Posteingang   INBOX    12           virtual  3
+Gesendet      SENT     41           virtual  0
+```
+
+Paginierte Antworten werden dabei ausgepackt: `{items: […], total, page}` zeigt
+die Einträge als Zeilen und den Rest als Fusszeile. Ein einzelnes Objekt
+(`auth status`) erscheint als Feld/Wert-Liste. `--table` und `--fields` greifen
+zusammen — erst wird eingegrenzt, dann tabelliert.
+
+Für eine ganze Session: `export IMMOJUMP_OUTPUT=table`. Ein anderer Wert als
+`json` oder `table` ist ein Konfigurationsfehler (Exit 3), kein stiller
+Rückfall.
+
+**Bewusst keine TTY-Erkennung.** Agenten-Runtimes wie Claude Code, Codex oder
+n8n starten Prozesse häufig in einem PTY. Ein Auto-Switch würde ihnen
+unangekündigt Tabellen statt JSON liefern — ein Fehler, der sich lokal in der
+Shell nie reproduzieren lässt. Der Default bleibt deshalb immer JSON.
 
 ## Kontext sparen
 
