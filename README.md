@@ -16,7 +16,7 @@ ersten Aufruf**: Der Agent entdeckt Befehle progressiv und bezahlt nur das, was
 er wirklich braucht.
 
 ```bash
-immojump --help                 # 16 Ressourcen, eine Bildschirmseite
+immojump --help                 # 19 Ressourcen, eine Bildschirmseite
 immojump shares --help          # die vier Befehle dieser Ressource
 immojump shares create --help   # Argumente, Flags, Risk-Level, Beispiel
 immojump schema shares create   # dasselbe als JSON für Tooling
@@ -24,7 +24,7 @@ immojump docs shares create     # dasselbe als Markdown-Ausschnitt
 ```
 
 `schema` und `docs` nehmen beide `[ressource [befehl]]`. Ohne Angabe kommt der
-komplette Dump (28 KB bzw. 38 KB), mit Angabe der Ausschnitt (~2 KB) — deshalb
+komplette Dump (51 KB bzw. 63 KB), mit Angabe der Ausschnitt (~2 KB) — deshalb
 weisen beide auf stderr auf die gezielte Form hin.
 
 Beide Wege bleiben gültig: Der MCP-Server ist die richtige Wahl, wenn ein Agent
@@ -365,6 +365,55 @@ Konten anlegen oder ändern kann das CLI bewusst **nicht**: Das setzt SMTP- und
 IMAP-Passwörter, und die hätten in der Shell-History und im Transkript jedes
 Agenten nichts verloren. Dafür bleiben die Web-App und im Notfall der
 Escape-Hatch zuständig.
+
+### Vollständiges Beispiel: im Feed mit dem Team reden
+
+Der Organisations-Feed ist der Ort, an dem ein Agent nicht nur Daten schiebt,
+sondern sich meldet:
+
+```bash
+# 1. Wo wird geredet?
+immojump feed channels --table --fields id,name,unread_count
+
+# 2. Was ist passiert?
+immojump feed list -q limit=10 --table --fields items.id,items.title,items.event_type
+
+# 3. Etwas in den Channel schreiben — @nickname benachrichtigt die Person
+immojump feed post \
+  --channel-id <uuid> \
+  --message "@chris Kaufpreise für Hauptstraße 12 sind nachgetragen."
+
+# 4. Auf einen Beitrag antworten
+immojump feed comments <event-uuid>
+immojump feed comment <event-uuid> --message "Erledigt, danke."
+
+# 5. Etwas direkt an eine Immobilie hängen
+immojump feed comment-object \
+  --context-type immobilie --context-id <uuid> \
+  --message "Notartermin steht."
+```
+
+**`feed post`, `feed comment` und `feed comment-object` sind `external`.** Ein
+`@nickname` im Text erzeugt eine Mitteilung **und eine E-Mail** an einen echten
+Kollegen — genauso wenig zurückholbar wie eine versendete Mail. Ein Agent mit
+`--allow read,write` kommt nicht daran.
+
+Reaktionen, `seen`, Bearbeiten und Channels anlegen sind dagegen `write`:
+Sie benachrichtigen niemanden. Channel und Kommentar löschen sind `destructive`.
+
+**Für Bots** ist `feed mentions` der Rückkanal: Cursor-Polling im Stil von
+Telegrams `getUpdates`. Ohne `since` starten, die Liste abarbeiten, dann das
+`created_at` der zuletzt verarbeiteten Erwähnung als nächstes `since` senden.
+Der Endpunkt verlangt ein Bot-Token — Menschen bekommen 403. Geantwortet wird
+mit `feed comment <feed_event_id>`.
+
+`notifications list` liest die Benachrichtigungen der **im Profil gesetzten**
+Organisation; `--org` wirkt dort nicht, weil die Route
+`current_user.current_organisation_id` auswertet statt des Headers.
+
+Nicht enthalten: der SSE-Stream (`GET /stream`) — eine langlaufende Verbindung
+passt nicht zum Ein-Request-Modell dieses CLI. Und `POST /uploads`, weil
+Anhänge im Feed einen eigenen Multipart-Weg brauchen.
 
 ## Sicherheit
 
