@@ -219,7 +219,7 @@ Kontakte auflisten
   - `status_id` — nur diese Phase; none = Kontakte ohne Status
   - `tag_ids` — Tag-IDs, kommagetrennt oder wiederholt
   - `tag_match` — all (Default, alle Tags) oder any (mindestens einer)
-- **Beispiel:** `immojump contacts list -q slim=true -q per_page=25 --fields id,first_name,last_name`
+- **Beispiel:** `immojump contacts list -q slim=true -q per_page=25 --fields items.id,items.first_name,items.last_name`
 
 #### contacts get
 
@@ -345,7 +345,7 @@ Immobilien suchen
   - `per_page` — Treffer pro Seite (Default 20)
   - `sort` — created_at (Default), name, kaufpreis, wohnflaeche oder preis_pro_qm
   - `order` — desc (Default) oder asc
-- **Beispiel:** `immojump immobilien search -q search=Köln --fields id,name`
+- **Beispiel:** `immojump immobilien search -q search=Köln --fields items.id,items.name`
 
 #### immobilien get
 
@@ -1213,7 +1213,7 @@ Nachrichten im Postfach auflisten
   - `q` — Freitext über Betreff, Absender und Text
   - `page` — Seite (ab 1)
   - `per_page` — Treffer pro Seite (Default 50, max. 200)
-- **Beispiel:** `immojump email list -q is_read=false --fields id,subject,from_email`
+- **Beispiel:** `immojump email list -q is_read=false --fields items.id,items.subject,items.from_email`
 
 #### email get
 
@@ -1248,7 +1248,7 @@ Nachrichten über alle Ordner durchsuchen
   - `q` — Suchbegriff; ohne ihn antwortet die Route mit einer leeren Liste
   - `page` — Seite (ab 1)
   - `per_page` — Treffer pro Seite (Default 50, max. 200)
-- **Beispiel:** `immojump email search -q q=Notartermin --fields id,subject`
+- **Beispiel:** `immojump email search -q q=Notartermin --fields items.id,items.subject`
 
 #### email folders
 
@@ -1297,9 +1297,9 @@ Warteschlange der noch nicht zum IMAP-Server gespiegelten Änderungen
 - **Endpoint:** `GET /api/email-messages/outbox`
 - **Risk:** `read`
 - **Bekannte Query-Parameter** (per `-q key=value`):
-  - `status` — pending, failed oder done
+  - `status` — PENDING, IN_PROGRESS, COMPLETED oder FAILED (exakt so geschrieben)
   - `limit` — Anzahl Einträge (Default 50, max. 500)
-- **Beispiel:** `immojump email outbox -q status=failed`
+- **Beispiel:** `immojump email outbox -q status=FAILED`
 
 #### email outbox-stats
 

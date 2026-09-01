@@ -393,7 +393,7 @@ var Registry = []Spec{
 			{"tag_ids", "Tag-IDs, kommagetrennt oder wiederholt"},
 			{"tag_match", "all (Default, alle Tags) oder any (mindestens einer)"},
 		},
-		Example: "immojump contacts list -q slim=true -q per_page=25 --fields id,first_name,last_name",
+		Example: "immojump contacts list -q slim=true -q per_page=25 --fields items.id,items.first_name,items.last_name",
 	},
 	{
 		Resource: "contacts", Verb: "get", Risk: RiskRead,
@@ -462,7 +462,7 @@ var Registry = []Spec{
 			{"sort", "created_at (Default), name, kaufpreis, wohnflaeche oder preis_pro_qm"},
 			{"order", "desc (Default) oder asc"},
 		},
-		Example: "immojump immobilien search -q search=Köln --fields id,name",
+		Example: "immojump immobilien search -q search=Köln --fields items.id,items.name",
 	},
 	{
 		Resource: "immobilien", Verb: "get", Risk: RiskRead,
@@ -989,7 +989,7 @@ var Registry = []Spec{
 			{"page", "Seite (ab 1)"},
 			{"per_page", "Treffer pro Seite (Default 50, max. 200)"},
 		},
-		Example: "immojump email list -q is_read=false --fields id,subject,from_email",
+		Example: "immojump email list -q is_read=false --fields items.id,items.subject,items.from_email",
 	},
 	{
 		Resource: "email", Verb: "get", Risk: RiskRead,
@@ -1017,7 +1017,7 @@ var Registry = []Spec{
 			{"page", "Seite (ab 1)"},
 			{"per_page", "Treffer pro Seite (Default 50, max. 200)"},
 		},
-		Example: "immojump email search -q q=Notartermin --fields id,subject",
+		Example: "immojump email search -q q=Notartermin --fields items.id,items.subject",
 	},
 	{
 		Resource: "email", Verb: "folders", Risk: RiskRead,
@@ -1055,10 +1055,10 @@ var Registry = []Spec{
 		Summary: "Warteschlange der noch nicht zum IMAP-Server gespiegelten Änderungen",
 		Method:  "GET", Path: "/api/email-messages/outbox",
 		QueryHints: []QueryHint{
-			{"status", "pending, failed oder done"},
+			{"status", "PENDING, IN_PROGRESS, COMPLETED oder FAILED (exakt so geschrieben)"},
 			{"limit", "Anzahl Einträge (Default 50, max. 500)"},
 		},
-		Example: "immojump email outbox -q status=failed",
+		Example: "immojump email outbox -q status=FAILED",
 	},
 	{
 		Resource: "email", Verb: "outbox-stats", Risk: RiskRead,

@@ -370,3 +370,60 @@ func TestCompactExposesErrors(t *testing.T) {
 		t.Error("Compact soll kaputtes JSON melden statt es zu verschlucken")
 	}
 }
+
+// TestFieldsProjectsIntoLists: Paginierte Routen antworten als Envelope
+// ({items: [...], pagination: {...}}). lookup() folgte einem Pfad bisher nur
+// durch Objekte und brach bei einem Array ab — `--fields items.id` traf damit
+// NICHTS, und die Ausgabe war `{}` plus eine Warnung.
+//
+// Gemessen gegen Produktion am 01.09.2026 mit `immobilien search`,
+// `contacts list` und `email list`. Betroffen war ausgerechnet der Fall, für
+// den --fields gebaut wurde: Bei kleinen Antworten lohnt die Projektion nicht,
+// bei den grossen (paginierten) wirkte sie nicht.
+func TestFieldsProjectsIntoLists(t *testing.T) {
+	body := `{"items":[{"id":1,"name":"A","gross":"weg"},{"id":2,"name":"B","gross":"weg"}],` +
+		`"pagination":{"page":1,"total":2}}`
+
+	got, report := renderWithReport(t, body, Options{Fields: []string{"items.id", "items.name"}})
+	want := `{"items":[{"id":1,"name":"A"},{"id":2,"name":"B"}]}` + "\n"
+	if got != want {
+		t.Errorf("Projektion in die Liste erwartet\n got: %s\nwant: %s", got, want)
+	}
+	if len(report.Missing) != 0 {
+		t.Errorf("keine fehlenden Felder erwartet, got %v", report.Missing)
+	}
+}
+
+// Ein Pfad, den es in den Listenelementen nicht gibt, muss weiterhin als
+// fehlend gemeldet werden — sonst sieht ein Tippfehler wie ein leeres Ergebnis aus.
+func TestFieldsInListsReportMissingPaths(t *testing.T) {
+	body := `{"items":[{"id":1},{"id":2}]}`
+	_, report := renderWithReport(t, body, Options{Fields: []string{"items.id", "items.tippfehler"}})
+	if len(report.Missing) != 1 || report.Missing[0] != "items.tippfehler" {
+		t.Errorf("items.tippfehler als fehlend erwartet, got %v", report.Missing)
+	}
+}
+
+// Eine leere Liste ist kein Tippfehler: items.id ist ein gültiger Pfad, auch
+// wenn gerade nichts drin steht. Sonst warnt ein leeres Postfach so, als wäre
+// der Befehl falsch gewesen.
+func TestFieldsInEmptyListIsNotMissing(t *testing.T) {
+	body := `{"items":[],"total":0}`
+	got, report := renderWithReport(t, body, Options{Fields: []string{"items.id"}})
+	if len(report.Missing) != 0 {
+		t.Errorf("leere Liste darf items.id nicht als fehlend melden, got %v", report.Missing)
+	}
+	if strings.TrimSpace(got) != `{"items":[]}` {
+		t.Errorf("leeres Array erwartet, got %s", got)
+	}
+}
+
+// Verschachtelte Objekte müssen weiter funktionieren wie bisher.
+func TestFieldsStillProjectNestedObjects(t *testing.T) {
+	body := `{"id":1,"adresse":{"stadt":"Köln","plz":"50667"}}`
+	got := render(t, body, Options{Fields: []string{"id", "adresse.stadt"}})
+	want := `{"id":1,"adresse":{"stadt":"Köln"}}` + "\n"
+	if got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
