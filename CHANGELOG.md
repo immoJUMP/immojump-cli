@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/immoJUMP/immojump-cli/compare/v0.4.1...v0.5.0) (2026-09-01)
+
+
+### Features
+
+* **email:** Postfach lesen, sortieren und versenden ([ae37e2b](https://github.com/immoJUMP/immojump-cli/commit/ae37e2b07790bf4112abc5b03e559e034981c176))
+
 ## [0.4.1](https://github.com/immoJUMP/immojump-cli/compare/v0.4.0...v0.4.1) (2026-08-29)
 
 
