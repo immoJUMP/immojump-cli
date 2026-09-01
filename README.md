@@ -275,6 +275,53 @@ tatsächlich gesetzt wurden, landen im PATCH-Body. `--note ""` schickt einen
 leeren String (löscht die Nachricht), `--remove-password` schickt
 `"password": null`.
 
+### Vollständiges Beispiel: Postfach abarbeiten
+
+Ungelesene Nachrichten sichten, eine beantworten, den Rest wegräumen:
+
+```bash
+# 1. Was liegt ungelesen im Posteingang?
+immojump email list -q is_read=false -q per_page=20 \
+  --fields id,subject,from_email,received_at
+
+# 2. Eine Nachricht im Volltext lesen
+#    Achtung: Das Öffnen markiert sie als gelesen — genau wie in der Web-App.
+immojump email get 3f2a…
+
+# 3. Alles zu einem Kontakt oder einer Immobilie im Zusammenhang
+immojump email for-contact 42 --fields id,subject,direction,received_at
+immojump email for-immobilie 5 --fields id,subject,from_email
+
+# 4. Antworten — über welches Postfach?
+immojump email accounts --fields items.id,items.email
+immojump email send 7b1c… \
+  --to kunde@example.com \
+  --cc kollege@example.com \
+  --subject "Re: Finanzierungsanfrage Hauptstraße 12" \
+  --html "<p>Guten Tag,</p><p>anbei die Unterlagen.</p>" \
+  --signature-id sig-1
+
+# 5. Aufräumen: mehrere IDs kommagetrennt oder wiederholt
+immojump email mark-read --message-ids 3f2a…,9c11…
+immojump email move --message-ids 3f2a… --folder Notar
+immojump email trash --message-ids 9c11…
+```
+
+`--to`, `--cc`, `--bcc`, `--message-ids` und `--entry-ids` sind Listen: beide
+Schreibweisen zählen, `--to a@x.de --to b@x.de` und `--to a@x.de,b@x.de`.
+
+`email send` braucht mindestens einen Empfänger — `--to ""` endet mit Exit 2,
+statt eine Mail an niemanden als Erfolg zu melden.
+
+Verschieben und Löschen werden im Hintergrund zum IMAP-Server gespiegelt.
+Hakt das, zeigt `email outbox -q status=failed`, was liegen geblieben ist;
+`email outbox-retry` stößt es erneut an.
+
+Konten anlegen oder ändern kann das CLI bewusst **nicht**: Das setzt SMTP- und
+IMAP-Passwörter, und die hätten in der Shell-History und im Transkript jedes
+Agenten nichts verloren. Dafür bleiben die Web-App und im Notfall der
+Escape-Hatch zuständig.
+
 ## Sicherheit
 
 **Base-URL-Allowlist.** Tokens gehen nur an bekannte immoJUMP-Instanzen —
@@ -289,10 +336,10 @@ Eigene Instanzen (White-Label) ergänzt man per
 
 | Level         | Beispiel                                            |
 | ------------- | --------------------------------------------------- |
-| `read`        | `immobilien list`, `shares list`                    |
-| `write`       | `contacts create`, `shares revoke`                  |
-| `external`    | `shares create`, `shares update` — wirkt nach außen |
-| `destructive` | `immobilien delete`, `documents delete`             |
+| `read`        | `immobilien list`, `shares list`, `email list`                    |
+| `write`       | `contacts create`, `shares revoke`, `email trash`                 |
+| `external`    | `shares create`, `shares update`, `email send` — wirkt nach außen |
+| `destructive` | `immobilien delete`, `documents delete`                           |
 
 Begrenzen lässt sich das pro Aufruf oder pro Umgebung:
 
@@ -318,6 +365,15 @@ erreichbar bleiben.
 abgelaufenen Link durch ein neues `expires_at` wieder aufmachen und per
 `--remove-password` den Passwortschutz entfernen — beides macht Inhalte
 genauso nach außen sichtbar wie das Erzeugen.
+
+`email send` ist `external`: Eine verschickte Mail holt niemand zurück. Ein
+Agent, der mit `--allow read,write` läuft, kommt also nicht ans Versenden —
+dieselbe Grenze zieht das Backend serverseitig über
+`rbac.can(org, 'create', 'email')`.
+
+`email trash` ist dagegen `write`: Die Route setzt nur ein Flag, die Nachricht
+kommt mit `email move --folder INBOX` zurück. `email folder-delete` ist
+`destructive`, weil ein gelöschter Ordner weg ist.
 
 Auch der Escape-Hatch hält sich daran. `api <METHOD> <pfad>` trägt kein festes
 Level: Methode und Pfad werden gegen die Registry gematcht, ein Treffer bringt
