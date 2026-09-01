@@ -21,6 +21,8 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `tags` | Tags und ihre Zuordnung zu Objekten |
 | `shares` | Freigabe-Links für Immobilien, Dokumente und Bilder |
 | `email` | Postfach: Nachrichten lesen, sortieren und versenden |
+| `feed` | Organisations-Feed: Beiträge, Kommentare, Channels |
+| `notifications` | Eigene Benachrichtigungen |
 | `api` | Beliebigen /api/-Pfad aufrufen (Escape-Hatch) |
 | `docs` | Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl |
 | `schema` | Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt |
@@ -1472,6 +1474,277 @@ E-Mail über ein Postfach der Organisation versenden
   - `--signature-id <wert>` — Signatur anhängen (IDs aus `email signatures`)
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
 - **Beispiel:** `immojump email send 7b1c… --to kunde@example.com --subject "Exposé" --html "<p>Anbei.</p>"`
+
+### feed
+
+Organisations-Feed: Beiträge, Kommentare, Channels
+
+| Befehl | Risk | Endpoint |
+| --- | --- | --- |
+| `feed list` | read | `GET /api/organisation-feed` |
+| `feed by-context` | read | `GET /api/organisation-feed/by-context` |
+| `feed comments` | read | `GET /api/organisation-feed/{event-id}/comments` |
+| `feed channels` | read | `GET /api/organisation-feed/channels` |
+| `feed attachments` | read | `GET /api/organisation-feed/attachments` |
+| `feed mentions` | read | `GET /api/bots/me/mentions` |
+| `feed post` | external | `POST /api/organisation-feed/post` |
+| `feed comment` | external | `POST /api/organisation-feed/{event-id}/comments` |
+| `feed comment-object` | external | `POST /api/organisation-feed/comment-object` |
+| `feed react` | write | `POST /api/organisation-feed/{event-id}/reactions` |
+| `feed seen` | write | `POST /api/organisation-feed/{event-id}/seen` |
+| `feed edit` | write | `PATCH /api/organisation-feed/{event-id}` |
+| `feed comment-edit` | write | `PATCH /api/organisation-feed/comments/{comment-id}` |
+| `feed comment-delete` | destructive | `DELETE /api/organisation-feed/comments/{comment-id}` |
+| `feed channel-create` | write | `POST /api/organisation-feed/channels` |
+| `feed channel-rename` | write | `PATCH /api/organisation-feed/channels/{channel-id}` |
+| `feed channel-delete` | destructive | `DELETE /api/organisation-feed/channels/{channel-id}` |
+
+#### feed list
+
+Beiträge im Organisations-Feed lesen
+
+- **Aufruf:** `immojump feed list`
+- **Endpoint:** `GET /api/organisation-feed`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `channel_id` — nur dieser Channel (IDs liefert `feed channels`)
+  - `limit` — Beiträge pro Seite (Default 20)
+  - `cursor` — nextCursor der vorherigen Antwort — für die nächste Seite
+- **Beispiel:** `immojump feed list -q limit=10 --fields items.id,items.title,items.message`
+
+#### feed by-context
+
+Beiträge zu einem Objekt (Immobilie, Kontakt …)
+
+- **Aufruf:** `immojump feed by-context`
+- **Endpoint:** `GET /api/organisation-feed/by-context`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `type` — Objektart, z. B. immobilie oder contact (Pflicht)
+  - `id` — ID des Objekts als UUID (Pflicht); etwas anderes gibt 400
+  - `limit` — Beiträge pro Seite (Default 20)
+  - `cursor` — nextCursor der vorherigen Antwort
+- **Beispiel:** `immojump feed by-context -q type=immobilie -q id=<uuid>`
+
+#### feed comments
+
+Kommentare eines Beitrags lesen
+
+- **Aufruf:** `immojump feed comments <event-id>`
+- **Endpoint:** `GET /api/organisation-feed/{event-id}/comments`
+- **Risk:** `read`
+- **Argumente:**
+  - `event-id` — ID des Beitrags
+- **Beispiel:** `immojump feed comments <uuid>`
+
+#### feed channels
+
+Channels der Organisation samt ungelesener Anzahl
+
+- **Aufruf:** `immojump feed channels`
+- **Endpoint:** `GET /api/organisation-feed/channels`
+- **Risk:** `read`
+- **Beispiel:** `immojump feed channels --fields id,name,unread_count`
+
+#### feed attachments
+
+Anhänge eines Beitrags oder Kommentars
+
+- **Aufruf:** `immojump feed attachments`
+- **Endpoint:** `GET /api/organisation-feed/attachments`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `event_id` — Anhänge dieses Beitrags
+  - `comment_id` — Anhänge dieses Kommentars; zusammen mit event_id gibt es 400
+- **Beispiel:** `immojump feed attachments -q event_id=<uuid>`
+
+#### feed mentions
+
+Erwähnungen des eigenen Bots abholen (nur mit Bot-Token; Menschen erhalten 403)
+
+- **Aufruf:** `immojump feed mentions`
+- **Endpoint:** `GET /api/bots/me/mentions`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `since` — ISO-8601-Zeitstempel, exklusiv: created_at der zuletzt verarbeiteten Erwähnung. Ohne ihn kommt die älteste Seite
+  - `limit` — Erwähnungen pro Abruf
+- **Beispiel:** `immojump feed mentions -q since=2026-09-01T10:00:00Z`
+
+#### feed post
+
+Beitrag in den Feed schreiben — ein @nickname darin benachrichtigt die Person per Mitteilung und E-Mail
+
+- **Aufruf:** `immojump feed post`
+- **Endpoint:** `POST /api/organisation-feed/post`
+- **Risk:** `external`
+- **Flags:**
+  - `--message <wert>` — (Pflicht) Inhalt (HTML erlaubt); @nickname erwähnt eine Person
+  - `--title <wert>` — Überschrift
+  - `--channel-id <wert>` — Channel, in den der Beitrag gehört (aus `feed channels`)
+  - `--context-type <wert>` — Objektart, an der der Beitrag hängt, z. B. immobilie
+  - `--context-id <wert>` — ID des Objekts
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed post --channel-id <uuid> --message "@chris Kaufpreise sind nachgetragen."`
+
+#### feed comment
+
+Auf einen Beitrag antworten — ein @nickname darin benachrichtigt die Person
+
+- **Aufruf:** `immojump feed comment <event-id>`
+- **Endpoint:** `POST /api/organisation-feed/{event-id}/comments`
+- **Risk:** `external`
+- **Argumente:**
+  - `event-id` — ID des Beitrags (für Bots: feed_event_id aus `feed mentions`)
+- **Flags:**
+  - `--message <wert>` — (Pflicht) Inhalt der Antwort (HTML erlaubt)
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed comment <uuid> --message "Erledigt."`
+
+#### feed comment-object
+
+Beitrag direkt an ein Objekt hängen — ein @nickname darin benachrichtigt die Person
+
+- **Aufruf:** `immojump feed comment-object`
+- **Endpoint:** `POST /api/organisation-feed/comment-object`
+- **Risk:** `external`
+- **Flags:**
+  - `--context-type <wert>` — (Pflicht) Objektart, z. B. immobilie oder contact
+  - `--context-id <wert>` — (Pflicht) ID des Objekts
+  - `--message <wert>` — (Pflicht) Inhalt (HTML erlaubt)
+  - `--title <wert>` — Überschrift
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed comment-object --context-type immobilie --context-id <uuid> --message "Notiz"`
+
+#### feed react
+
+Reaktion auf einen Beitrag setzen oder wegnehmen (schaltet um)
+
+- **Aufruf:** `immojump feed react <event-id>`
+- **Endpoint:** `POST /api/organisation-feed/{event-id}/reactions`
+- **Risk:** `write`
+- **Argumente:**
+  - `event-id` — ID des Beitrags
+- **Flags:**
+  - `--emoji <wert>` — (Pflicht) Emoji, z. B. 👍
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed react <uuid> --emoji 👍`
+
+#### feed seen
+
+Beitrag als gelesen markieren
+
+- **Aufruf:** `immojump feed seen <event-id>`
+- **Endpoint:** `POST /api/organisation-feed/{event-id}/seen`
+- **Risk:** `write`
+- **Argumente:**
+  - `event-id` — ID des Beitrags
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed seen <uuid>`
+
+#### feed edit
+
+Eigenen Beitrag ändern
+
+- **Aufruf:** `immojump feed edit <event-id>`
+- **Endpoint:** `PATCH /api/organisation-feed/{event-id}`
+- **Risk:** `write`
+- **Argumente:**
+  - `event-id` — ID des Beitrags
+- **Flags:**
+  - `--message <wert>` — neuer Inhalt
+  - `--title <wert>` — neue Überschrift
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed edit <uuid> --message "korrigiert"`
+
+#### feed comment-edit
+
+Eigenen Kommentar ändern
+
+- **Aufruf:** `immojump feed comment-edit <comment-id>`
+- **Endpoint:** `PATCH /api/organisation-feed/comments/{comment-id}`
+- **Risk:** `write`
+- **Argumente:**
+  - `comment-id` — ID des Kommentars
+- **Flags:**
+  - `--message <wert>` — (Pflicht) neuer Inhalt
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed comment-edit <uuid> --message "Tippfehler behoben"`
+
+#### feed comment-delete
+
+Eigenen Kommentar löschen
+
+- **Aufruf:** `immojump feed comment-delete <comment-id>`
+- **Endpoint:** `DELETE /api/organisation-feed/comments/{comment-id}`
+- **Risk:** `destructive`
+- **Argumente:**
+  - `comment-id` — ID des Kommentars
+- **Beispiel:** `immojump feed comment-delete <uuid>`
+
+#### feed channel-create
+
+Channel anlegen
+
+- **Aufruf:** `immojump feed channel-create`
+- **Endpoint:** `POST /api/organisation-feed/channels`
+- **Risk:** `write`
+- **Flags:**
+  - `--name <wert>` — (Pflicht) Name des Channels
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed channel-create --name Ankauf`
+
+#### feed channel-rename
+
+Channel umbenennen
+
+- **Aufruf:** `immojump feed channel-rename <channel-id>`
+- **Endpoint:** `PATCH /api/organisation-feed/channels/{channel-id}`
+- **Risk:** `write`
+- **Argumente:**
+  - `channel-id` — ID des Channels
+- **Flags:**
+  - `--name <wert>` — (Pflicht) neuer Name
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump feed channel-rename <uuid> --name "Ankauf 2026"`
+
+#### feed channel-delete
+
+Channel löschen
+
+- **Aufruf:** `immojump feed channel-delete <channel-id>`
+- **Endpoint:** `DELETE /api/organisation-feed/channels/{channel-id}`
+- **Risk:** `destructive`
+- **Argumente:**
+  - `channel-id` — ID des Channels
+- **Beispiel:** `immojump feed channel-delete <uuid>`
+
+### notifications
+
+Eigene Benachrichtigungen
+
+| Befehl | Risk | Endpoint |
+| --- | --- | --- |
+| `notifications list` | read | `GET /api/notifications` |
+| `notifications read-all` | write | `POST /api/notifications/read-all` |
+
+#### notifications list
+
+Eigene Benachrichtigungen (Erwähnungen, Einladungen) — immer aus der im Profil gesetzten Organisation, --org greift hier nicht
+
+- **Aufruf:** `immojump notifications list`
+- **Endpoint:** `GET /api/notifications`
+- **Risk:** `read`
+- **Beispiel:** `immojump notifications list --fields notifications.headline,notifications.url`
+
+#### notifications read-all
+
+Alle eigenen Benachrichtigungen als gelesen markieren
+
+- **Aufruf:** `immojump notifications read-all`
+- **Endpoint:** `POST /api/notifications/read-all`
+- **Risk:** `write`
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump notifications read-all`
 
 ### api
 

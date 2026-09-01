@@ -295,6 +295,8 @@ var Resources = []ResourceInfo{
 	{"tags", "Tags und ihre Zuordnung zu Objekten"},
 	{"shares", "Freigabe-Links für Immobilien, Dokumente und Bilder"},
 	{"email", "Postfach: Nachrichten lesen, sortieren und versenden"},
+	{"feed", "Organisations-Feed: Beiträge, Kommentare, Channels"},
+	{"notifications", "Eigene Benachrichtigungen"},
 	{"api", "Beliebigen /api/-Pfad aufrufen (Escape-Hatch)"},
 	{"docs", "Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl"},
 	{"schema", "Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt"},
@@ -1239,6 +1241,230 @@ var Registry = []Spec{
 			{Flag: "signature-id", Key: "signature_id"},
 		},
 		Example: "immojump email send 7b1c… --to kunde@example.com --subject \"Exposé\" --html \"<p>Anbei.</p>\"",
+	},
+
+	// --- feed -------------------------------------------------------------
+	// Der Organisations-Feed (modules/org_feed/): Beitraege, Kommentare,
+	// Reaktionen, Channels. Die Organisation kommt aus X-Organisation-Id
+	// (_require_org) — deshalb kein {org} im Pfad.
+	//
+	// Der SSE-Stream (GET /stream) fehlt bewusst: Eine langlaufende Verbindung
+	// passt nicht zum Ein-Request-Modell dieses CLI. Wer mitlesen will,
+	// pollt `feed list` bzw. `feed mentions` mit Cursor.
+	{
+		Resource: "feed", Verb: "list", Risk: RiskRead,
+		Summary: "Beiträge im Organisations-Feed lesen",
+		Method:  "GET", Path: "/api/organisation-feed",
+		QueryHints: []QueryHint{
+			{"channel_id", "nur dieser Channel (IDs liefert `feed channels`)"},
+			{"limit", "Beiträge pro Seite (Default 20)"},
+			{"cursor", "nextCursor der vorherigen Antwort — für die nächste Seite"},
+		},
+		Example: "immojump feed list -q limit=10 --fields items.id,items.title,items.message",
+	},
+	{
+		Resource: "feed", Verb: "by-context", Risk: RiskRead,
+		Summary: "Beiträge zu einem Objekt (Immobilie, Kontakt …)",
+		Method:  "GET", Path: "/api/organisation-feed/by-context",
+		QueryHints: []QueryHint{
+			{"type", "Objektart, z. B. immobilie oder contact (Pflicht)"},
+			{"id", "ID des Objekts als UUID (Pflicht); etwas anderes gibt 400"},
+			{"limit", "Beiträge pro Seite (Default 20)"},
+			{"cursor", "nextCursor der vorherigen Antwort"},
+		},
+		Example: "immojump feed by-context -q type=immobilie -q id=<uuid>",
+	},
+	{
+		Resource: "feed", Verb: "comments", Risk: RiskRead,
+		Summary: "Kommentare eines Beitrags lesen",
+		Method:  "GET", Path: "/api/organisation-feed/{event-id}/comments",
+		Args:    []Arg{{Name: "event-id", Desc: "ID des Beitrags"}},
+		Example: "immojump feed comments <uuid>",
+	},
+	{
+		Resource: "feed", Verb: "channels", Risk: RiskRead,
+		Summary: "Channels der Organisation samt ungelesener Anzahl",
+		Method:  "GET", Path: "/api/organisation-feed/channels",
+		Example: "immojump feed channels --fields id,name,unread_count",
+	},
+	{
+		Resource: "feed", Verb: "attachments", Risk: RiskRead,
+		Summary: "Anhänge eines Beitrags oder Kommentars",
+		Method:  "GET", Path: "/api/organisation-feed/attachments",
+		QueryHints: []QueryHint{
+			{"event_id", "Anhänge dieses Beitrags"},
+			{"comment_id", "Anhänge dieses Kommentars; zusammen mit event_id gibt es 400"},
+		},
+		Example: "immojump feed attachments -q event_id=<uuid>",
+	},
+	{
+		// Nur mit Bot-Token: Menschen bekommen 403. Das gehoert in die
+		// Summary, sonst sucht jemand den Fehler bei sich.
+		Resource: "feed", Verb: "mentions", Risk: RiskRead,
+		Summary: "Erwähnungen des eigenen Bots abholen (nur mit Bot-Token; Menschen erhalten 403)",
+		Method:  "GET", Path: "/api/bots/me/mentions",
+		QueryHints: []QueryHint{
+			{"since", "ISO-8601-Zeitstempel, exklusiv: created_at der zuletzt verarbeiteten Erwähnung. Ohne ihn kommt die älteste Seite"},
+			{"limit", "Erwähnungen pro Abruf"},
+		},
+		Example: "immojump feed mentions -q since=2026-09-01T10:00:00Z",
+	},
+	{
+		// external, nicht write: @nickname erzeugt Benachrichtigung UND E-Mail
+		// (mention_service.create_mention_notifications, send_email=True).
+		// Ein Beitrag an Kollegen ist so wenig zurueckholbar wie eine Mail.
+		Resource: "feed", Verb: "post", Risk: RiskExternal,
+		Summary: "Beitrag in den Feed schreiben — ein @nickname darin benachrichtigt die Person per Mitteilung und E-Mail",
+		Method:  "POST", Path: "/api/organisation-feed/post",
+		Flags: []Flag{
+			{Name: "message", Kind: FlagString, Required: true,
+				NonEmpty: "einen Text angeben", Desc: "Inhalt (HTML erlaubt); @nickname erwähnt eine Person"},
+			{Name: "title", Kind: FlagString, Desc: "Überschrift"},
+			{Name: "channel-id", Kind: FlagString, Desc: "Channel, in den der Beitrag gehört (aus `feed channels`)"},
+			{Name: "context-type", Kind: FlagString, Desc: "Objektart, an der der Beitrag hängt, z. B. immobilie"},
+			{Name: "context-id", Kind: FlagString, Desc: "ID des Objekts"},
+		},
+		Body: []FlagBody{
+			{Flag: "message", Key: "message"},
+			{Flag: "title", Key: "title"},
+			{Flag: "channel-id", Key: "channel_id"},
+			{Flag: "context-type", Key: "context_type"},
+			{Flag: "context-id", Key: "context_id"},
+		},
+		Example: "immojump feed post --channel-id <uuid> --message \"@chris Kaufpreise sind nachgetragen.\"",
+	},
+	{
+		Resource: "feed", Verb: "comment", Risk: RiskExternal,
+		Summary: "Auf einen Beitrag antworten — ein @nickname darin benachrichtigt die Person",
+		Method:  "POST", Path: "/api/organisation-feed/{event-id}/comments",
+		Args: []Arg{{Name: "event-id", Desc: "ID des Beitrags (für Bots: feed_event_id aus `feed mentions`)"}},
+		Flags: []Flag{
+			{Name: "message", Kind: FlagString, Required: true,
+				NonEmpty: "einen Text angeben", Desc: "Inhalt der Antwort (HTML erlaubt)"},
+		},
+		Body:    []FlagBody{{Flag: "message", Key: "message"}},
+		Example: "immojump feed comment <uuid> --message \"Erledigt.\"",
+	},
+	{
+		Resource: "feed", Verb: "comment-object", Risk: RiskExternal,
+		Summary: "Beitrag direkt an ein Objekt hängen — ein @nickname darin benachrichtigt die Person",
+		Method:  "POST", Path: "/api/organisation-feed/comment-object",
+		Flags: []Flag{
+			{Name: "context-type", Kind: FlagString, Required: true,
+				NonEmpty: "eine Objektart angeben", Desc: "Objektart, z. B. immobilie oder contact"},
+			{Name: "context-id", Kind: FlagString, Required: true,
+				NonEmpty: "eine Objekt-ID angeben", Desc: "ID des Objekts"},
+			{Name: "message", Kind: FlagString, Required: true,
+				NonEmpty: "einen Text angeben", Desc: "Inhalt (HTML erlaubt)"},
+			{Name: "title", Kind: FlagString, Desc: "Überschrift"},
+		},
+		Body: []FlagBody{
+			{Flag: "context-type", Key: "context_type"},
+			{Flag: "context-id", Key: "context_id"},
+			{Flag: "message", Key: "message"},
+			{Flag: "title", Key: "title"},
+		},
+		Example: "immojump feed comment-object --context-type immobilie --context-id <uuid> --message \"Notiz\"",
+	},
+	{
+		Resource: "feed", Verb: "react", Risk: RiskWrite,
+		Summary: "Reaktion auf einen Beitrag setzen oder wegnehmen (schaltet um)",
+		Method:  "POST", Path: "/api/organisation-feed/{event-id}/reactions",
+		Args: []Arg{{Name: "event-id", Desc: "ID des Beitrags"}},
+		Flags: []Flag{
+			{Name: "emoji", Kind: FlagString, Required: true,
+				NonEmpty: "ein Emoji angeben", Desc: "Emoji, z. B. 👍"},
+		},
+		Body:    []FlagBody{{Flag: "emoji", Key: "emoji"}},
+		Example: "immojump feed react <uuid> --emoji 👍",
+	},
+	{
+		Resource: "feed", Verb: "seen", Risk: RiskWrite,
+		Summary: "Beitrag als gelesen markieren",
+		Method:  "POST", Path: "/api/organisation-feed/{event-id}/seen",
+		Args:    []Arg{{Name: "event-id", Desc: "ID des Beitrags"}},
+		Example: "immojump feed seen <uuid>",
+	},
+	{
+		Resource: "feed", Verb: "edit", Risk: RiskWrite,
+		Summary: "Eigenen Beitrag ändern",
+		Method:  "PATCH", Path: "/api/organisation-feed/{event-id}",
+		Args: []Arg{{Name: "event-id", Desc: "ID des Beitrags"}},
+		Flags: []Flag{
+			{Name: "message", Kind: FlagString, Desc: "neuer Inhalt"},
+			{Name: "title", Kind: FlagString, Desc: "neue Überschrift"},
+		},
+		Body: []FlagBody{
+			{Flag: "message", Key: "message"},
+			{Flag: "title", Key: "title"},
+		},
+		EmptyBodyHint: "`feed edit` braucht --message oder --title.",
+		Example:       "immojump feed edit <uuid> --message \"korrigiert\"",
+	},
+	{
+		Resource: "feed", Verb: "comment-edit", Risk: RiskWrite,
+		Summary: "Eigenen Kommentar ändern",
+		Method:  "PATCH", Path: "/api/organisation-feed/comments/{comment-id}",
+		Args: []Arg{{Name: "comment-id", Desc: "ID des Kommentars"}},
+		Flags: []Flag{
+			{Name: "message", Kind: FlagString, Required: true,
+				NonEmpty: "einen Text angeben", Desc: "neuer Inhalt"},
+		},
+		Body:    []FlagBody{{Flag: "message", Key: "message"}},
+		Example: "immojump feed comment-edit <uuid> --message \"Tippfehler behoben\"",
+	},
+	{
+		Resource: "feed", Verb: "comment-delete", Risk: RiskDestructive,
+		Summary: "Eigenen Kommentar löschen",
+		Method:  "DELETE", Path: "/api/organisation-feed/comments/{comment-id}",
+		Args:    []Arg{{Name: "comment-id", Desc: "ID des Kommentars"}},
+		Example: "immojump feed comment-delete <uuid>",
+	},
+	{
+		Resource: "feed", Verb: "channel-create", Risk: RiskWrite,
+		Summary: "Channel anlegen",
+		Method:  "POST", Path: "/api/organisation-feed/channels",
+		Flags: []Flag{
+			{Name: "name", Kind: FlagString, Required: true,
+				NonEmpty: "einen Channel-Namen angeben", Desc: "Name des Channels"},
+		},
+		Body:    []FlagBody{{Flag: "name", Key: "name"}},
+		Example: "immojump feed channel-create --name Ankauf",
+	},
+	{
+		Resource: "feed", Verb: "channel-rename", Risk: RiskWrite,
+		Summary: "Channel umbenennen",
+		Method:  "PATCH", Path: "/api/organisation-feed/channels/{channel-id}",
+		Args: []Arg{{Name: "channel-id", Desc: "ID des Channels"}},
+		Flags: []Flag{
+			{Name: "name", Kind: FlagString, Required: true,
+				NonEmpty: "einen Channel-Namen angeben", Desc: "neuer Name"},
+		},
+		Body:    []FlagBody{{Flag: "name", Key: "name"}},
+		Example: "immojump feed channel-rename <uuid> --name \"Ankauf 2026\"",
+	},
+	{
+		Resource: "feed", Verb: "channel-delete", Risk: RiskDestructive,
+		Summary: "Channel löschen",
+		Method:  "DELETE", Path: "/api/organisation-feed/channels/{channel-id}",
+		Args:    []Arg{{Name: "channel-id", Desc: "ID des Channels"}},
+		Example: "immojump feed channel-delete <uuid>",
+	},
+
+	// --- notifications ----------------------------------------------------
+	// Achtung: Diese Routen lesen current_user.current_organisation_id und
+	// ignorieren X-Organisation-Id — --org wirkt hier NICHT.
+	{
+		Resource: "notifications", Verb: "list", Risk: RiskRead,
+		Summary: "Eigene Benachrichtigungen (Erwähnungen, Einladungen) — immer aus der im Profil gesetzten Organisation, --org greift hier nicht",
+		Method:  "GET", Path: "/api/notifications",
+		Example: "immojump notifications list --fields notifications.headline,notifications.url",
+	},
+	{
+		Resource: "notifications", Verb: "read-all", Risk: RiskWrite,
+		Summary: "Alle eigenen Benachrichtigungen als gelesen markieren",
+		Method:  "POST", Path: "/api/notifications/read-all",
+		Example: "immojump notifications read-all",
 	},
 
 	{
