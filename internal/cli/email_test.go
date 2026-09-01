@@ -251,3 +251,74 @@ func TestEmailSendNeedsRecipients(t *testing.T) {
 		})
 	}
 }
+
+// TestEnvelopeExamplesProjectIntoItems: Diese Routen antworten mit einem
+// Envelope ({items, total, …}). Ein Beispiel wie `--fields id,subject` trifft
+// dort NICHTS — das CLI gibt `{}` aus und warnt auf stderr.
+//
+// Gemessen gegen Produktion am 01.09.2026: `immojump immobilien search
+// --fields id,name` und `contacts list -q per_page=25 --fields id,…` lieferten
+// beide "fields_missing". Das Beispiel war seit v0.1 falsch, und ein Beispiel,
+// das nichts tut, ist schlimmer als keins (dieselbe Regel wie bei -q).
+//
+// `immobilien list` steht bewusst NICHT in der Liste: ohne page/per_page
+// antwortet es flach, und genau so steht es im Beispiel.
+func TestEnvelopeExamplesProjectIntoItems(t *testing.T) {
+	envelope := []string{
+		"contacts list",
+		"immobilien search",
+		"email list",
+		"email search",
+		"email accounts",
+	}
+	for _, name := range envelope {
+		parts := strings.SplitN(name, " ", 2)
+		spec, ok := Lookup(parts[0], parts[1])
+		if !ok {
+			t.Fatalf("%q fehlt in der Registry", name)
+		}
+		_, fields, found := strings.Cut(spec.Example, "--fields ")
+		if !found {
+			continue // kein --fields-Beispiel, nichts zu prüfen
+		}
+		for _, field := range strings.Split(strings.Fields(fields)[0], ",") {
+			if !strings.HasPrefix(field, "items.") {
+				t.Errorf("%q: Beispiel projiziert auf %q, die Antwort ist aber ein Envelope — items.%s gemeint?",
+					name, field, field)
+			}
+		}
+	}
+}
+
+// TestOutboxStatusHintNamesRealValues: EmailImapOutbox.status wird exakt
+// verglichen (list_entries: `.filter(status == status)`), und OutboxStatus
+// ist GROSSGESCHRIEBEN. Ein Hinweis auf "pending, failed oder done" wäre
+// gleich dreifach falsch: falsche Schreibweise, und "done" gibt es nicht.
+func TestOutboxStatusHintNamesRealValues(t *testing.T) {
+	spec, ok := Lookup("email", "outbox")
+	if !ok {
+		t.Fatal("email outbox fehlt in der Registry")
+	}
+	var hint string
+	for _, h := range spec.QueryHints {
+		if h.Name == "status" {
+			hint = h.Summary
+		}
+	}
+	if hint == "" {
+		t.Fatal("QueryHint status fehlt")
+	}
+	for _, want := range []string{"PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"} {
+		if !strings.Contains(hint, want) {
+			t.Errorf("status-Hinweis nennt %q nicht: %q", want, hint)
+		}
+	}
+	if strings.Contains(hint, "done") {
+		t.Errorf("status-Hinweis nennt den erfundenen Wert \"done\": %q", hint)
+	}
+	// Das Beispiel muss denselben echten Wert benutzen — kleingeschrieben
+	// filtert es gegen Produktion stillschweigend alles weg.
+	if strings.Contains(spec.Example, "status=") && !strings.Contains(spec.Example, "status=FAILED") {
+		t.Errorf("Beispiel nutzt einen anderen status-Wert als das Backend kennt: %q", spec.Example)
+	}
+}

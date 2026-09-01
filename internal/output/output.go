@@ -332,10 +332,28 @@ func project(raw json.RawMessage, paths [][]string, collector *fieldCollector) (
 			return nil, fmt.Errorf("Objekt nicht lesbar: %w", err)
 		}
 		collector.seeObject(fields)
+
+		// Pfade, die in eine Liste zeigen ("items.id"), werden elementweise
+		// projiziert — sonst bräche lookup() am Array ab und --fields wäre
+		// ausgerechnet bei paginierten Antworten wirkungslos.
+		lists := listProjections(fields, paths)
+
 		tree := &node{}
+		done := map[string]bool{}
 		for i, path := range paths {
 			value, ok := fields[path[0]]
 			if !ok {
+				continue
+			}
+			if sub, isSub := lists[path[0]]; isSub && len(path) > 1 {
+				// Reihenfolge folgt dem ersten Pfad dieser Liste in --fields.
+				if sub.hit[indexOf(sub.origin, i)] {
+					collector.markHit(i)
+				}
+				if !done[path[0]] {
+					done[path[0]] = true
+					tree.insert(path[:1], sub.value)
+				}
 				continue
 			}
 			if len(path) > 1 {
@@ -372,6 +390,72 @@ func lookup(raw json.RawMessage, path []string) (json.RawMessage, bool) {
 		current = value
 	}
 	return current, true
+}
+
+// isList sagt, ob ein Rohwert ein JSON-Array ist.
+func isList(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+// listProjection ist das Ergebnis für einen Schlüssel, dessen Wert eine Liste
+// ist: das projizierte Array plus die Treffer je Restpfad.
+type listProjection struct {
+	value  json.RawMessage
+	hit    []bool
+	origin []int // Index des Restpfads im ursprünglichen paths-Slice
+}
+
+// listProjections projiziert jeden Listen-Schlüssel einmal mit ALLEN seinen
+// Restpfaden. Nur so entsteht [{id,name},…] statt {id:[…],name:[…]} — die
+// Elemente müssen zusammenbleiben.
+//
+// Eine leere Liste zählt als Treffer: `items.id` ist ein gültiger Pfad, auch
+// wenn gerade nichts drin steht. Sonst warnte ein leeres Postfach so, als
+// hätte sich der Aufrufer vertippt.
+func listProjections(fields map[string]json.RawMessage, paths [][]string) map[string]*listProjection {
+	rest := map[string][][]string{}
+	origin := map[string][]int{}
+	for i, path := range paths {
+		if len(path) < 2 {
+			continue
+		}
+		value, ok := fields[path[0]]
+		if !ok || !isList(value) {
+			continue
+		}
+		rest[path[0]] = append(rest[path[0]], path[1:])
+		origin[path[0]] = append(origin[path[0]], i)
+	}
+	if len(rest) == 0 {
+		return nil
+	}
+	out := make(map[string]*listProjection, len(rest))
+	for key, subPaths := range rest {
+		subCollector := newFieldCollector(subPaths)
+		projected, err := project(fields[key], subPaths, subCollector)
+		if err != nil {
+			continue
+		}
+		hit := subCollector.hit
+		if bytes.Equal(bytes.TrimSpace(fields[key]), []byte("[]")) {
+			hit = make([]bool, len(subPaths))
+			for i := range hit {
+				hit[i] = true
+			}
+		}
+		out[key] = &listProjection{value: projected, hit: hit, origin: origin[key]}
+	}
+	return out
+}
+
+func indexOf(values []int, want int) int {
+	for i, v := range values {
+		if v == want {
+			return i
+		}
+	}
+	return 0
 }
 
 // node ist ein Ausgabebaum, der die Einfügereihenfolge behält.

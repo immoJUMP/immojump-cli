@@ -282,15 +282,15 @@ Ungelesene Nachrichten sichten, eine beantworten, den Rest wegräumen:
 ```bash
 # 1. Was liegt ungelesen im Posteingang?
 immojump email list -q is_read=false -q per_page=20 \
-  --fields id,subject,from_email,received_at
+  --fields items.id,items.subject,items.from_email
 
 # 2. Eine Nachricht im Volltext lesen
 #    Achtung: Das Öffnen markiert sie als gelesen — genau wie in der Web-App.
 immojump email get 3f2a…
 
 # 3. Alles zu einem Kontakt oder einer Immobilie im Zusammenhang
-immojump email for-contact 42 --fields id,subject,direction,received_at
-immojump email for-immobilie 5 --fields id,subject,from_email
+immojump email for-contact <uuid> --fields items.id,items.subject,items.direction
+immojump email for-immobilie <uuid> --fields items.id,items.subject
 
 # 4. Antworten — über welches Postfach?
 immojump email accounts --fields items.id,items.email
@@ -307,6 +307,10 @@ immojump email move --message-ids 3f2a… --folder Notar
 immojump email trash --message-ids 9c11…
 ```
 
+`email list`, `email search`, `email for-contact` und `email for-immobilie`
+antworten als Envelope `{items, total, page, per_page}` — `--fields` spricht
+die Elemente deshalb als `items.<feld>` an.
+
 `--to`, `--cc`, `--bcc`, `--message-ids` und `--entry-ids` sind Listen: beide
 Schreibweisen zählen, `--to a@x.de --to b@x.de` und `--to a@x.de,b@x.de`.
 
@@ -314,7 +318,7 @@ Schreibweisen zählen, `--to a@x.de --to b@x.de` und `--to a@x.de,b@x.de`.
 statt eine Mail an niemanden als Erfolg zu melden.
 
 Verschieben und Löschen werden im Hintergrund zum IMAP-Server gespiegelt.
-Hakt das, zeigt `email outbox -q status=failed`, was liegen geblieben ist;
+Hakt das, zeigt `email outbox -q status=FAILED`, was liegen geblieben ist;
 `email outbox-retry` stößt es erneut an.
 
 Konten anlegen oder ändern kann das CLI bewusst **nicht**: Das setzt SMTP- und
