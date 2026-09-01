@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/immoJUMP/immojump-cli/compare/v0.6.0...v0.7.0) (2026-09-01)
+
+
+### Features
+
+* **feed:** Organisations-Feed und Benachrichtigungen ([2bbf10c](https://github.com/immoJUMP/immojump-cli/commit/2bbf10c9eef32a834f52396a987089655abb3599))
+
 ## [0.6.0](https://github.com/immoJUMP/immojump-cli/compare/v0.5.0...v0.6.0) (2026-09-01)
 
 
