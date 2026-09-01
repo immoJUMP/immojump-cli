@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/immoJUMP/immojump-cli/compare/v0.5.0...v0.6.0) (2026-09-01)
+
+
+### Features
+
+* **cli:** Browser-Login und Tabellenausgabe für Menschen ([6eb79ca](https://github.com/immoJUMP/immojump-cli/commit/6eb79ca5c13a166dc2b5d78d5dca5f17bacf986e))
+
+
+### Bug Fixes
+
+* **output:** --fields projiziert auch in Listen ([bfd7dbe](https://github.com/immoJUMP/immojump-cli/commit/bfd7dbe362c6ec0e7b3795b2d9d4a9778c968fd7))
+
 ## [0.5.0](https://github.com/immoJUMP/immojump-cli/compare/v0.4.1...v0.5.0) (2026-09-01)
 
 
