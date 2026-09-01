@@ -294,6 +294,7 @@ var Resources = []ResourceInfo{
 	{"documents", "Dokumente hochladen, analysieren, verwalten"},
 	{"tags", "Tags und ihre Zuordnung zu Objekten"},
 	{"shares", "Freigabe-Links für Immobilien, Dokumente und Bilder"},
+	{"email", "Postfach: Nachrichten lesen, sortieren und versenden"},
 	{"api", "Beliebigen /api/-Pfad aufrufen (Escape-Hatch)"},
 	{"docs", "Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl"},
 	{"schema", "Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt"},
@@ -967,6 +968,276 @@ var Registry = []Spec{
 	},
 
 	// --- Escape-Hatch und Meta -------------------------------------------
+	// --- email ------------------------------------------------------------
+	// Die Organisation reist hier ausschliesslich im Header X-Organisation-Id
+	// (email_message_routes._resolve_org_id) — deshalb steht in keinem dieser
+	// Pfade ein {org}, anders als bei pipelines und tags.
+	//
+	// Konten anlegen/aendern/loeschen fehlt bewusst: Das setzt SMTP- und
+	// IMAP-Passwoerter, und als Flag landen die in der Shell-History und im
+	// Transkript jedes Agenten. Dafuer bleiben das Frontend und der
+	// Escape-Hatch zustaendig.
+	{
+		Resource: "email", Verb: "list", Risk: RiskRead,
+		Summary: "Nachrichten im Postfach auflisten", Method: "GET", Path: "/api/email-messages",
+		QueryHints: []QueryHint{
+			{"account_id", "nur dieses Postfach (IDs liefert `email accounts`)"},
+			{"folder", "Ordner, Default INBOX; virtuell auch SENT, STARRED, ARCHIVE, TRASH, DRAFTS"},
+			{"is_read", "true = nur gelesene, false = nur ungelesene"},
+			{"is_starred", "true = nur markierte"},
+			{"q", "Freitext über Betreff, Absender und Text"},
+			{"page", "Seite (ab 1)"},
+			{"per_page", "Treffer pro Seite (Default 50, max. 200)"},
+		},
+		Example: "immojump email list -q is_read=false --fields id,subject,from_email",
+	},
+	{
+		Resource: "email", Verb: "get", Risk: RiskRead,
+		// Der Nebeneffekt gehoert in die Summary, nicht in einen Kommentar:
+		// Die Route markiert die Nachricht beim Oeffnen als gelesen. Ein
+		// Agent, der stumm 50 Mails auf gelesen setzt, ist eine Beschwerde.
+		Summary: "Eine Nachricht mit vollem Text laden — markiert sie dabei als gelesen",
+		Method:  "GET", Path: "/api/email-messages/{id}",
+		Args:    idArg("ID der Nachricht"),
+		Example: "immojump email get 3f2a…",
+	},
+	{
+		Resource: "email", Verb: "thread", Risk: RiskRead,
+		Summary: "Einen Thread mit allen Nachrichten laden",
+		Method:  "GET", Path: "/api/email-messages/threads/{thread-id}",
+		Args:    []Arg{{Name: "thread-id", Desc: "ID des Threads"}},
+		Example: "immojump email thread 9c11…",
+	},
+	{
+		Resource: "email", Verb: "search", Risk: RiskRead,
+		Summary: "Nachrichten über alle Ordner durchsuchen",
+		Method:  "GET", Path: "/api/email-messages/search",
+		QueryHints: []QueryHint{
+			{"q", "Suchbegriff; ohne ihn antwortet die Route mit einer leeren Liste"},
+			{"page", "Seite (ab 1)"},
+			{"per_page", "Treffer pro Seite (Default 50, max. 200)"},
+		},
+		Example: "immojump email search -q q=Notartermin --fields id,subject",
+	},
+	{
+		Resource: "email", Verb: "folders", Risk: RiskRead,
+		Summary: "Ordner des Postfachs auflisten",
+		Method:  "GET", Path: "/api/email-messages/folders",
+		QueryHints: []QueryHint{
+			{"account_id", "nur die Ordner dieses Postfachs"},
+		},
+		Example: "immojump email folders",
+	},
+	{
+		Resource: "email", Verb: "for-immobilie", Risk: RiskRead,
+		Summary: "Nachrichten aller Kontakte, die an einer Immobilie hängen",
+		Method:  "GET", Path: "/api/email-messages/immobilie/{immobilie-id}",
+		Args: []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
+		QueryHints: []QueryHint{
+			{"page", "Seite (ab 1)"},
+			{"per_page", "Treffer pro Seite (Default 50, max. 200)"},
+		},
+		Example: "immojump email for-immobilie 5",
+	},
+	{
+		Resource: "email", Verb: "for-contact", Risk: RiskRead,
+		Summary: "Nachrichten eines Kontakts",
+		Method:  "GET", Path: "/api/email-messages/contact/{contact-id}",
+		Args: []Arg{{Name: "contact-id", Desc: "ID des Kontakts"}},
+		QueryHints: []QueryHint{
+			{"page", "Seite (ab 1)"},
+			{"per_page", "Treffer pro Seite (Default 20, max. 100)"},
+		},
+		Example: "immojump email for-contact 42",
+	},
+	{
+		Resource: "email", Verb: "outbox", Risk: RiskRead,
+		Summary: "Warteschlange der noch nicht zum IMAP-Server gespiegelten Änderungen",
+		Method:  "GET", Path: "/api/email-messages/outbox",
+		QueryHints: []QueryHint{
+			{"status", "pending, failed oder done"},
+			{"limit", "Anzahl Einträge (Default 50, max. 500)"},
+		},
+		Example: "immojump email outbox -q status=failed",
+	},
+	{
+		Resource: "email", Verb: "outbox-stats", Risk: RiskRead,
+		Summary: "Zählstand der Warteschlange (offen, fehlgeschlagen, erledigt)",
+		Method:  "GET", Path: "/api/email-messages/outbox/stats",
+		Example: "immojump email outbox-stats",
+	},
+	{
+		Resource: "email", Verb: "accounts", Risk: RiskRead,
+		Summary: "Postfächer der Organisation auflisten — liefert die account-id für `email send`",
+		Method:  "GET", Path: "/api/org/email-accounts",
+		Example: "immojump email accounts --fields items.id,items.email",
+	},
+	{
+		Resource: "email", Verb: "signatures", Risk: RiskRead,
+		Summary: "Signaturen der Organisation — liefert die ID für `email send --signature-id`",
+		Method:  "GET", Path: "/api/org/email-signatures",
+		Example: "immojump email signatures --fields id,name",
+	},
+	{
+		Resource: "email", Verb: "mark-read", Risk: RiskWrite,
+		Summary: "Nachrichten als gelesen markieren (--is-read=false setzt sie zurück)",
+		Method:  "POST", Path: "/api/email-messages/mark-read",
+		Flags: []Flag{
+			{Name: "message-ids", Kind: FlagList, Required: true,
+				Desc: "IDs der Nachrichten, kommagetrennt oder wiederholt"},
+			{Name: "is-read", Kind: FlagBool, Desc: "`--is-read=false` setzt wieder auf ungelesen (Default true)"},
+		},
+		Body: []FlagBody{
+			{Flag: "message-ids", Key: "message_ids"},
+			{Flag: "is-read", Key: "is_read"},
+		},
+		Example: "immojump email mark-read --message-ids 3f2a…,9c11…",
+	},
+	{
+		Resource: "email", Verb: "mark-starred", Risk: RiskWrite,
+		Summary: "Nachrichten markieren (--is-starred=false nimmt die Markierung weg)",
+		Method:  "POST", Path: "/api/email-messages/mark-starred",
+		Flags: []Flag{
+			{Name: "message-ids", Kind: FlagList, Required: true,
+				Desc: "IDs der Nachrichten, kommagetrennt oder wiederholt"},
+			{Name: "is-starred", Kind: FlagBool, Desc: "`--is-starred=false` entfernt die Markierung (Default true)"},
+		},
+		Body: []FlagBody{
+			{Flag: "message-ids", Key: "message_ids"},
+			{Flag: "is-starred", Key: "is_starred"},
+		},
+		Example: "immojump email mark-starred --message-ids 3f2a…",
+	},
+	{
+		Resource: "email", Verb: "archive", Risk: RiskWrite,
+		Summary: "Nachrichten archivieren",
+		Method:  "POST", Path: "/api/email-messages/archive",
+		Flags: []Flag{
+			{Name: "message-ids", Kind: FlagList, Required: true,
+				Desc: "IDs der Nachrichten, kommagetrennt oder wiederholt"},
+		},
+		Body:    []FlagBody{{Flag: "message-ids", Key: "message_ids"}},
+		Example: "immojump email archive --message-ids 3f2a…",
+	},
+	{
+		// Bewusst write, nicht destructive: Die Route setzt nur is_deleted
+		// (email_message_service.trash_messages). Zurueck geht es mit
+		// `email move --folder INBOX`. Festgehalten in TestEmailTrashIsReversible.
+		Resource: "email", Verb: "trash", Risk: RiskWrite,
+		Summary: "Nachrichten in den Papierkorb legen (umkehrbar über `email move`)",
+		Method:  "POST", Path: "/api/email-messages/trash",
+		Flags: []Flag{
+			{Name: "message-ids", Kind: FlagList, Required: true,
+				Desc: "IDs der Nachrichten, kommagetrennt oder wiederholt"},
+		},
+		Body:    []FlagBody{{Flag: "message-ids", Key: "message_ids"}},
+		Example: "immojump email trash --message-ids 3f2a…",
+	},
+	{
+		Resource: "email", Verb: "move", Risk: RiskWrite,
+		Summary: "Nachrichten in einen anderen Ordner verschieben",
+		Method:  "POST", Path: "/api/email-messages/move",
+		Flags: []Flag{
+			{Name: "message-ids", Kind: FlagList, Required: true,
+				Desc: "IDs der Nachrichten, kommagetrennt oder wiederholt"},
+			{Name: "folder", Kind: FlagString, Required: true,
+				Desc: "Zielordner, Default INBOX; SENT/STARRED/ARCHIVE/TRASH/DRAFTS sind virtuell und bleiben lokal"},
+		},
+		Body: []FlagBody{
+			{Flag: "message-ids", Key: "message_ids"},
+			{Flag: "folder", Key: "folder"},
+		},
+		Example: "immojump email move --message-ids 3f2a… --folder Notar",
+	},
+	{
+		Resource: "email", Verb: "sync", Risk: RiskWrite,
+		Summary: "IMAP-Abgleich anstoßen (Backend-Limit: 10 Aufrufe pro Stunde)",
+		Method:  "POST", Path: "/api/email-messages/sync",
+		Flags: []Flag{
+			{Name: "account-id", Kind: FlagString, Desc: "nur dieses Postfach; ohne Angabe alle der Organisation"},
+		},
+		Body:    []FlagBody{{Flag: "account-id", Key: "account_id"}},
+		Example: "immojump email sync",
+	},
+	{
+		Resource: "email", Verb: "outbox-retry", Risk: RiskWrite,
+		Summary: "Fehlgeschlagene Einträge der Warteschlange erneut versuchen",
+		Method:  "POST", Path: "/api/email-messages/outbox/retry",
+		Flags: []Flag{
+			{Name: "entry-ids", Kind: FlagList,
+				Desc: "IDs aus `email outbox`; ohne Angabe alle fehlgeschlagenen"},
+		},
+		Body:    []FlagBody{{Flag: "entry-ids", Key: "entry_ids"}},
+		Example: "immojump email outbox-retry",
+	},
+	{
+		Resource: "email", Verb: "folder-create", Risk: RiskWrite,
+		Summary: "Ordner anlegen",
+		Method:  "POST", Path: "/api/email-messages/folders",
+		Flags: []Flag{
+			{Name: "name", Kind: FlagString, Required: true,
+				NonEmpty: "einen Ordnernamen angeben",
+				Desc:     "Name des Ordners; ohne / \\ < > \" und nicht mit Punkt beginnend oder endend"},
+		},
+		Body:    []FlagBody{{Flag: "name", Key: "name"}},
+		Example: "immojump email folder-create --name Notar",
+	},
+	{
+		Resource: "email", Verb: "folder-rename", Risk: RiskWrite,
+		Summary: "Ordner umbenennen",
+		Method:  "POST", Path: "/api/email-messages/folders/rename",
+		Flags: []Flag{
+			{Name: "old-name", Kind: FlagString, Required: true,
+				NonEmpty: "den bisherigen Ordnernamen angeben", Desc: "bisheriger Name"},
+			{Name: "new-name", Kind: FlagString, Required: true,
+				NonEmpty: "den neuen Ordnernamen angeben", Desc: "neuer Name"},
+		},
+		Body: []FlagBody{
+			{Flag: "old-name", Key: "old_name"},
+			{Flag: "new-name", Key: "new_name"},
+		},
+		Example: "immojump email folder-rename --old-name Notar --new-name Notartermine",
+	},
+	{
+		Resource: "email", Verb: "folder-delete", Risk: RiskDestructive,
+		Summary: "Ordner löschen",
+		Method:  "POST", Path: "/api/email-messages/folders/delete",
+		Flags: []Flag{
+			{Name: "name", Kind: FlagString, Required: true,
+				NonEmpty: "einen Ordnernamen angeben", Desc: "Name des Ordners"},
+		},
+		Body:    []FlagBody{{Flag: "name", Key: "name"}},
+		Example: "immojump email folder-delete --name Notar",
+	},
+	{
+		// external, nicht write: Eine verschickte Mail holt niemand zurueck.
+		// Das Backend zieht dieselbe Grenze (rbac.can(org, 'create', 'email')
+		// zusaetzlich zu is_scoped, seit a463f22ac).
+		Resource: "email", Verb: "send", Risk: RiskExternal,
+		Summary: "E-Mail über ein Postfach der Organisation versenden",
+		Method:  "POST", Path: "/api/org/email-accounts/{account-id}/send",
+		Args: []Arg{{Name: "account-id", Desc: "ID des Postfachs (aus `email accounts`)"}},
+		Flags: []Flag{
+			{Name: "to", Kind: FlagList, Required: true,
+				NonEmpty: "mindestens eine Empfängeradresse angeben",
+				Desc:     "Empfänger, kommagetrennt oder wiederholt"},
+			{Name: "cc", Kind: FlagList, Desc: "Kopie, kommagetrennt oder wiederholt"},
+			{Name: "bcc", Kind: FlagList, Desc: "Blindkopie, kommagetrennt oder wiederholt"},
+			{Name: "subject", Kind: FlagString, Desc: "Betreff"},
+			{Name: "html", Kind: FlagString, Desc: "Inhalt als HTML"},
+			{Name: "signature-id", Kind: FlagString, Desc: "Signatur anhängen (IDs aus `email signatures`)"},
+		},
+		Body: []FlagBody{
+			{Flag: "to", Key: "to"},
+			{Flag: "cc", Key: "cc"},
+			{Flag: "bcc", Key: "bcc"},
+			{Flag: "subject", Key: "subject"},
+			{Flag: "html", Key: "html"},
+			{Flag: "signature-id", Key: "signature_id"},
+		},
+		Example: "immojump email send 7b1c… --to kunde@example.com --subject \"Exposé\" --html \"<p>Anbei.</p>\"",
+	},
+
 	{
 		// Kein statisches Risk: Es entsteht pro Aufruf aus Methode und Pfad
 		// (siehe APIRiskRule und RiskForRequest).

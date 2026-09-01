@@ -282,6 +282,13 @@ func flagBodyValue(flag Flag, flags *flagValues) (any, error) {
 	if flag.Kind == FlagBool {
 		return flags.bool(flag.Name), nil
 	}
+	if flag.Kind == FlagList {
+		values := flagListValues(flag, flags)
+		if flag.NonEmpty != "" && len(values) == 0 {
+			return nil, usageErr("--%s darf nicht leer sein — %s", flag.Name, flag.NonEmpty)
+		}
+		return values, nil
+	}
 	raw := flags.get(flag.Name)
 	if flag.NonEmpty != "" && strings.TrimSpace(raw) == "" {
 		return nil, usageErr("--%s darf nicht leer sein — %s", flag.Name, flag.NonEmpty)
@@ -297,6 +304,24 @@ func flagBodyValue(flag Flag, flags *flagValues) (any, error) {
 		raw = normalizeDateTime(raw)
 	}
 	return raw, nil
+}
+
+// flagListValues macht aus einem wiederholbaren Flag ein JSON-Array. Beide
+// Schreibweisen zählen — wiederholt (`--to a --to b`) und kommagetrennt
+// (`--to a,b`), wie schon bei --tag-ids.
+//
+// Ohne diesen Zweig lief eine Liste über flags.get() und damit über den
+// ZULETZT gesetzten Wert: Eine Mail an drei Empfänger wäre still an einen
+// gegangen. Das Ergebnis ist immer ein Array, nie null — `"to": null` würde
+// das Backend anders behandeln als `"to": []`.
+func flagListValues(flag Flag, flags *flagValues) []any {
+	values := []any{}
+	for _, raw := range flags.all(flag.Name) {
+		for _, item := range config.SplitCSV(raw) {
+			values = append(values, item)
+		}
+	}
+	return values
 }
 
 // checkBodyFlagConflicts fängt zwei Flags ab, die auf denselben Body-Schlüssel

@@ -311,10 +311,14 @@ func TestRegistryCoversDesignScope(t *testing.T) {
 		"documents":  {"list", "upload", "rename", "delete", "analyze", "analyze-details", "mark-reviewed", "analysis-results"},
 		"tags":       {"list", "create", "update", "delete", "of", "set"},
 		"shares":     {"list", "create", "update", "revoke"},
-		"api":        {""},
-		"docs":       {""},
-		"schema":     {""},
-		"version":    {""},
+		"email": {"list", "get", "thread", "search", "folders", "for-immobilie", "for-contact",
+			"outbox", "outbox-stats", "accounts", "signatures",
+			"mark-read", "mark-starred", "archive", "trash", "move", "sync", "outbox-retry",
+			"folder-create", "folder-rename", "folder-delete", "send"},
+		"api":     {""},
+		"docs":    {""},
+		"schema":  {""},
+		"version": {""},
 	}
 	for resource, verbs := range want {
 		for _, verb := range verbs {

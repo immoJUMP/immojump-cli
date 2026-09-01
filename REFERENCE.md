@@ -20,6 +20,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `documents` | Dokumente hochladen, analysieren, verwalten |
 | `tags` | Tags und ihre Zuordnung zu Objekten |
 | `shares` | Freigabe-Links für Immobilien, Dokumente und Bilder |
+| `email` | Postfach: Nachrichten lesen, sortieren und versenden |
 | `api` | Beliebigen /api/-Pfad aufrufen (Escape-Hatch) |
 | `docs` | Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl |
 | `schema` | Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt |
@@ -1167,6 +1168,308 @@ Freigabe-Link widerrufen (der sichere Ausweg, deshalb nur write)
 - **Argumente:**
   - `id` — ID des Freigabe-Links
 - **Beispiel:** `immojump shares revoke 7`
+
+### email
+
+Postfach: Nachrichten lesen, sortieren und versenden
+
+| Befehl | Risk | Endpoint |
+| --- | --- | --- |
+| `email list` | read | `GET /api/email-messages` |
+| `email get` | read | `GET /api/email-messages/{id}` |
+| `email thread` | read | `GET /api/email-messages/threads/{thread-id}` |
+| `email search` | read | `GET /api/email-messages/search` |
+| `email folders` | read | `GET /api/email-messages/folders` |
+| `email for-immobilie` | read | `GET /api/email-messages/immobilie/{immobilie-id}` |
+| `email for-contact` | read | `GET /api/email-messages/contact/{contact-id}` |
+| `email outbox` | read | `GET /api/email-messages/outbox` |
+| `email outbox-stats` | read | `GET /api/email-messages/outbox/stats` |
+| `email accounts` | read | `GET /api/org/email-accounts` |
+| `email signatures` | read | `GET /api/org/email-signatures` |
+| `email mark-read` | write | `POST /api/email-messages/mark-read` |
+| `email mark-starred` | write | `POST /api/email-messages/mark-starred` |
+| `email archive` | write | `POST /api/email-messages/archive` |
+| `email trash` | write | `POST /api/email-messages/trash` |
+| `email move` | write | `POST /api/email-messages/move` |
+| `email sync` | write | `POST /api/email-messages/sync` |
+| `email outbox-retry` | write | `POST /api/email-messages/outbox/retry` |
+| `email folder-create` | write | `POST /api/email-messages/folders` |
+| `email folder-rename` | write | `POST /api/email-messages/folders/rename` |
+| `email folder-delete` | destructive | `POST /api/email-messages/folders/delete` |
+| `email send` | external | `POST /api/org/email-accounts/{account-id}/send` |
+
+#### email list
+
+Nachrichten im Postfach auflisten
+
+- **Aufruf:** `immojump email list`
+- **Endpoint:** `GET /api/email-messages`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `account_id` — nur dieses Postfach (IDs liefert `email accounts`)
+  - `folder` — Ordner, Default INBOX; virtuell auch SENT, STARRED, ARCHIVE, TRASH, DRAFTS
+  - `is_read` — true = nur gelesene, false = nur ungelesene
+  - `is_starred` — true = nur markierte
+  - `q` — Freitext über Betreff, Absender und Text
+  - `page` — Seite (ab 1)
+  - `per_page` — Treffer pro Seite (Default 50, max. 200)
+- **Beispiel:** `immojump email list -q is_read=false --fields id,subject,from_email`
+
+#### email get
+
+Eine Nachricht mit vollem Text laden — markiert sie dabei als gelesen
+
+- **Aufruf:** `immojump email get <id>`
+- **Endpoint:** `GET /api/email-messages/{id}`
+- **Risk:** `read`
+- **Argumente:**
+  - `id` — ID der Nachricht
+- **Beispiel:** `immojump email get 3f2a…`
+
+#### email thread
+
+Einen Thread mit allen Nachrichten laden
+
+- **Aufruf:** `immojump email thread <thread-id>`
+- **Endpoint:** `GET /api/email-messages/threads/{thread-id}`
+- **Risk:** `read`
+- **Argumente:**
+  - `thread-id` — ID des Threads
+- **Beispiel:** `immojump email thread 9c11…`
+
+#### email search
+
+Nachrichten über alle Ordner durchsuchen
+
+- **Aufruf:** `immojump email search`
+- **Endpoint:** `GET /api/email-messages/search`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `q` — Suchbegriff; ohne ihn antwortet die Route mit einer leeren Liste
+  - `page` — Seite (ab 1)
+  - `per_page` — Treffer pro Seite (Default 50, max. 200)
+- **Beispiel:** `immojump email search -q q=Notartermin --fields id,subject`
+
+#### email folders
+
+Ordner des Postfachs auflisten
+
+- **Aufruf:** `immojump email folders`
+- **Endpoint:** `GET /api/email-messages/folders`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `account_id` — nur die Ordner dieses Postfachs
+- **Beispiel:** `immojump email folders`
+
+#### email for-immobilie
+
+Nachrichten aller Kontakte, die an einer Immobilie hängen
+
+- **Aufruf:** `immojump email for-immobilie <immobilie-id>`
+- **Endpoint:** `GET /api/email-messages/immobilie/{immobilie-id}`
+- **Risk:** `read`
+- **Argumente:**
+  - `immobilie-id` — ID der Immobilie
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `page` — Seite (ab 1)
+  - `per_page` — Treffer pro Seite (Default 50, max. 200)
+- **Beispiel:** `immojump email for-immobilie 5`
+
+#### email for-contact
+
+Nachrichten eines Kontakts
+
+- **Aufruf:** `immojump email for-contact <contact-id>`
+- **Endpoint:** `GET /api/email-messages/contact/{contact-id}`
+- **Risk:** `read`
+- **Argumente:**
+  - `contact-id` — ID des Kontakts
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `page` — Seite (ab 1)
+  - `per_page` — Treffer pro Seite (Default 20, max. 100)
+- **Beispiel:** `immojump email for-contact 42`
+
+#### email outbox
+
+Warteschlange der noch nicht zum IMAP-Server gespiegelten Änderungen
+
+- **Aufruf:** `immojump email outbox`
+- **Endpoint:** `GET /api/email-messages/outbox`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `status` — pending, failed oder done
+  - `limit` — Anzahl Einträge (Default 50, max. 500)
+- **Beispiel:** `immojump email outbox -q status=failed`
+
+#### email outbox-stats
+
+Zählstand der Warteschlange (offen, fehlgeschlagen, erledigt)
+
+- **Aufruf:** `immojump email outbox-stats`
+- **Endpoint:** `GET /api/email-messages/outbox/stats`
+- **Risk:** `read`
+- **Beispiel:** `immojump email outbox-stats`
+
+#### email accounts
+
+Postfächer der Organisation auflisten — liefert die account-id für `email send`
+
+- **Aufruf:** `immojump email accounts`
+- **Endpoint:** `GET /api/org/email-accounts`
+- **Risk:** `read`
+- **Beispiel:** `immojump email accounts --fields items.id,items.email`
+
+#### email signatures
+
+Signaturen der Organisation — liefert die ID für `email send --signature-id`
+
+- **Aufruf:** `immojump email signatures`
+- **Endpoint:** `GET /api/org/email-signatures`
+- **Risk:** `read`
+- **Beispiel:** `immojump email signatures --fields id,name`
+
+#### email mark-read
+
+Nachrichten als gelesen markieren (--is-read=false setzt sie zurück)
+
+- **Aufruf:** `immojump email mark-read`
+- **Endpoint:** `POST /api/email-messages/mark-read`
+- **Risk:** `write`
+- **Flags:**
+  - `--message-ids <wert>` — (Pflicht) IDs der Nachrichten, kommagetrennt oder wiederholt
+  - `--is-read` — `--is-read=false` setzt wieder auf ungelesen (Default true)
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email mark-read --message-ids 3f2a…,9c11…`
+
+#### email mark-starred
+
+Nachrichten markieren (--is-starred=false nimmt die Markierung weg)
+
+- **Aufruf:** `immojump email mark-starred`
+- **Endpoint:** `POST /api/email-messages/mark-starred`
+- **Risk:** `write`
+- **Flags:**
+  - `--message-ids <wert>` — (Pflicht) IDs der Nachrichten, kommagetrennt oder wiederholt
+  - `--is-starred` — `--is-starred=false` entfernt die Markierung (Default true)
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email mark-starred --message-ids 3f2a…`
+
+#### email archive
+
+Nachrichten archivieren
+
+- **Aufruf:** `immojump email archive`
+- **Endpoint:** `POST /api/email-messages/archive`
+- **Risk:** `write`
+- **Flags:**
+  - `--message-ids <wert>` — (Pflicht) IDs der Nachrichten, kommagetrennt oder wiederholt
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email archive --message-ids 3f2a…`
+
+#### email trash
+
+Nachrichten in den Papierkorb legen (umkehrbar über `email move`)
+
+- **Aufruf:** `immojump email trash`
+- **Endpoint:** `POST /api/email-messages/trash`
+- **Risk:** `write`
+- **Flags:**
+  - `--message-ids <wert>` — (Pflicht) IDs der Nachrichten, kommagetrennt oder wiederholt
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email trash --message-ids 3f2a…`
+
+#### email move
+
+Nachrichten in einen anderen Ordner verschieben
+
+- **Aufruf:** `immojump email move`
+- **Endpoint:** `POST /api/email-messages/move`
+- **Risk:** `write`
+- **Flags:**
+  - `--message-ids <wert>` — (Pflicht) IDs der Nachrichten, kommagetrennt oder wiederholt
+  - `--folder <wert>` — (Pflicht) Zielordner, Default INBOX; SENT/STARRED/ARCHIVE/TRASH/DRAFTS sind virtuell und bleiben lokal
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email move --message-ids 3f2a… --folder Notar`
+
+#### email sync
+
+IMAP-Abgleich anstoßen (Backend-Limit: 10 Aufrufe pro Stunde)
+
+- **Aufruf:** `immojump email sync`
+- **Endpoint:** `POST /api/email-messages/sync`
+- **Risk:** `write`
+- **Flags:**
+  - `--account-id <wert>` — nur dieses Postfach; ohne Angabe alle der Organisation
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email sync`
+
+#### email outbox-retry
+
+Fehlgeschlagene Einträge der Warteschlange erneut versuchen
+
+- **Aufruf:** `immojump email outbox-retry`
+- **Endpoint:** `POST /api/email-messages/outbox/retry`
+- **Risk:** `write`
+- **Flags:**
+  - `--entry-ids <wert>` — IDs aus `email outbox`; ohne Angabe alle fehlgeschlagenen
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email outbox-retry`
+
+#### email folder-create
+
+Ordner anlegen
+
+- **Aufruf:** `immojump email folder-create`
+- **Endpoint:** `POST /api/email-messages/folders`
+- **Risk:** `write`
+- **Flags:**
+  - `--name <wert>` — (Pflicht) Name des Ordners; ohne / \ < > " und nicht mit Punkt beginnend oder endend
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email folder-create --name Notar`
+
+#### email folder-rename
+
+Ordner umbenennen
+
+- **Aufruf:** `immojump email folder-rename`
+- **Endpoint:** `POST /api/email-messages/folders/rename`
+- **Risk:** `write`
+- **Flags:**
+  - `--old-name <wert>` — (Pflicht) bisheriger Name
+  - `--new-name <wert>` — (Pflicht) neuer Name
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email folder-rename --old-name Notar --new-name Notartermine`
+
+#### email folder-delete
+
+Ordner löschen
+
+- **Aufruf:** `immojump email folder-delete`
+- **Endpoint:** `POST /api/email-messages/folders/delete`
+- **Risk:** `destructive`
+- **Flags:**
+  - `--name <wert>` — (Pflicht) Name des Ordners
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email folder-delete --name Notar`
+
+#### email send
+
+E-Mail über ein Postfach der Organisation versenden
+
+- **Aufruf:** `immojump email send <account-id>`
+- **Endpoint:** `POST /api/org/email-accounts/{account-id}/send`
+- **Risk:** `external`
+- **Argumente:**
+  - `account-id` — ID des Postfachs (aus `email accounts`)
+- **Flags:**
+  - `--to <wert>` — (Pflicht) Empfänger, kommagetrennt oder wiederholt
+  - `--cc <wert>` — Kopie, kommagetrennt oder wiederholt
+  - `--bcc <wert>` — Blindkopie, kommagetrennt oder wiederholt
+  - `--subject <wert>` — Betreff
+  - `--html <wert>` — Inhalt als HTML
+  - `--signature-id <wert>` — Signatur anhängen (IDs aus `email signatures`)
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump email send 7b1c… --to kunde@example.com --subject "Exposé" --html "<p>Anbei.</p>"`
 
 ### api
 
