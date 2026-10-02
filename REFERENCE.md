@@ -8,6 +8,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 
 | Ressource | Beschreibung |
 | --- | --- |
+| `intelligence` | Theos Einschätzung und persönliche Objektentscheidungen |
 | `auth` | Anmelden und die aufgelöste Konfiguration prüfen |
 | `context` | Instanzen und Organisationen verwalten (wie kubectl) |
 | `contacts` | Kontakte |
@@ -104,6 +105,76 @@ uneingeschränktem Token kann die API auch direkt aufrufen.
 | `11` | 400/422 — Validierung fehlgeschlagen |
 
 ## Befehle
+
+### intelligence
+
+Theos Einschätzung und persönliche Objektentscheidungen
+
+| Befehl | Risk | Endpoint |
+| --- | --- | --- |
+| `intelligence get` | read | `GET /api/immobilien/{id}/intelligence` |
+| `intelligence analyze` | external | `POST /api/immobilien/{id}/intelligence/analyze` |
+| `intelligence settings` | write | `PUT /api/immobilien/{id}/intelligence/settings` |
+| `intelligence decisions` | read | `GET /api/immobilien/{id}/intelligence/decisions` |
+| `intelligence decide` | write | `POST /api/immobilien/{id}/intelligence/decisions` |
+
+#### intelligence get
+
+Suchprofil, Unterlagen, Chancen, Risiken und nächste Schritte laden
+
+- **Aufruf:** `immojump intelligence get <id>`
+- **Endpoint:** `GET /api/immobilien/{id}/intelligence`
+- **Risk:** `read`
+- **Argumente:**
+  - `id` — ID der Immobilie
+- **Beispiel:** `immojump intelligence get 5`
+
+#### intelligence analyze
+
+Unterlagen vertieft bewerten; verbraucht eine KI-Analyse
+
+- **Aufruf:** `immojump intelligence analyze <id>`
+- **Endpoint:** `POST /api/immobilien/{id}/intelligence/analyze`
+- **Risk:** `external`
+- **Argumente:**
+  - `id` — ID der Immobilie
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump intelligence analyze 5`
+
+#### intelligence settings
+
+Persönliches Suchprofil, Prüfphase oder Unterlagenstatus ändern
+
+- **Aufruf:** `immojump intelligence settings <id>`
+- **Endpoint:** `PUT /api/immobilien/{id}/intelligence/settings`
+- **Risk:** `write`
+- **Argumente:**
+  - `id` — ID der Immobilie
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump intelligence settings 5 --set phase=purchase`
+
+#### intelligence decisions
+
+Eigene Objektentscheidungen laden
+
+- **Aufruf:** `immojump intelligence decisions <id>`
+- **Endpoint:** `GET /api/immobilien/{id}/intelligence/decisions`
+- **Risk:** `read`
+- **Argumente:**
+  - `id` — ID der Immobilie
+- **Beispiel:** `immojump intelligence decisions 5`
+
+#### intelligence decide
+
+Explizite Objektentscheidung mit Grund und Anfrage-ID speichern
+
+- **Aufruf:** `immojump intelligence decide <id>`
+- **Endpoint:** `POST /api/immobilien/{id}/intelligence/decisions`
+- **Risk:** `write`
+- **Argumente:**
+  - `id` — ID der Immobilie
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump intelligence decide 5 --set outcome=reject --set reason=renovation --set request_id=00000000-0000-0000-0000-000000000002`
 
 ### auth
 

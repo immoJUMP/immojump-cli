@@ -55,6 +55,12 @@ func TestCommandRequestTable(t *testing.T) {
 		{name: "immobilien duplicate", args: []string{"immobilien", "duplicate", "5"},
 			method: "POST", path: "/api/v2/immobilien/5/duplicate", body: `{}`},
 
+		{name: "intelligence get", args: []string{"intelligence", "get", "5"}, method: "GET", path: "/api/immobilien/5/intelligence"},
+		{name: "intelligence analyze", args: []string{"intelligence", "analyze", "5"}, method: "POST", path: "/api/immobilien/5/intelligence/analyze", body: `{}`},
+		{name: "intelligence settings", args: []string{"intelligence", "settings", "5", "--body", `{"phase":"purchase"}`}, method: "PUT", path: "/api/immobilien/5/intelligence/settings", body: `{"phase":"purchase"}`},
+		{name: "intelligence decisions", args: []string{"intelligence", "decisions", "5"}, method: "GET", path: "/api/immobilien/5/intelligence/decisions"},
+		{name: "intelligence decide", args: []string{"intelligence", "decide", "5", "--body", `{"outcome":"reject","reason":"renovation","request_id":"00000000-0000-0000-0000-000000000002"}`}, method: "POST", path: "/api/immobilien/5/intelligence/decisions", body: `{"outcome":"reject","reason":"renovation","request_id":"00000000-0000-0000-0000-000000000002"}`},
+
 		// --- units --------------------------------------------------------
 		{name: "units list", args: []string{"units", "list", "5"}, method: "GET", path: "/api/units/immobilie/5/units"},
 		{name: "units create", args: []string{"units", "create", "5", "--set", "einheit=WE 1"},
