@@ -282,6 +282,7 @@ type ResourceInfo struct {
 
 // Resources bestimmt die Reihenfolge in --help und REFERENCE.md.
 var Resources = []ResourceInfo{
+	{Name: "intelligence", Summary: "Theos Einschätzung und persönliche Objektentscheidungen"},
 	{"auth", "Anmelden und die aufgelöste Konfiguration prüfen"},
 	{"context", "Instanzen und Organisationen verwalten (wie kubectl)"},
 	{"contacts", "Kontakte"},
@@ -511,6 +512,11 @@ var Registry = []Spec{
 		Example: "immojump immobilien duplicate 5",
 	},
 
+	{Resource: "intelligence", Verb: "get", Method: "GET", Path: "/api/immobilien/{id}/intelligence", Args: idArg("ID der Immobilie"), Risk: RiskRead, Summary: "Suchprofil, Unterlagen, Chancen, Risiken und nächste Schritte laden", Example: "immojump intelligence get 5"},
+	{Resource: "intelligence", Verb: "analyze", Method: "POST", Path: "/api/immobilien/{id}/intelligence/analyze", Args: idArg("ID der Immobilie"), Risk: RiskExternal, Summary: "Unterlagen vertieft bewerten; verbraucht eine KI-Analyse", Example: "immojump intelligence analyze 5"},
+	{Resource: "intelligence", Verb: "settings", Method: "PUT", Path: "/api/immobilien/{id}/intelligence/settings", Args: idArg("ID der Immobilie"), Risk: RiskWrite, Summary: "Persönliches Suchprofil, Prüfphase oder Unterlagenstatus ändern", Example: "immojump intelligence settings 5 --set phase=purchase"},
+	{Resource: "intelligence", Verb: "decisions", Method: "GET", Path: "/api/immobilien/{id}/intelligence/decisions", Args: idArg("ID der Immobilie"), Risk: RiskRead, Summary: "Eigene Objektentscheidungen laden", Example: "immojump intelligence decisions 5"},
+	{Resource: "intelligence", Verb: "decide", Method: "POST", Path: "/api/immobilien/{id}/intelligence/decisions", Args: idArg("ID der Immobilie"), Risk: RiskWrite, Summary: "Explizite Objektentscheidung mit Grund und Anfrage-ID speichern", Example: "immojump intelligence decide 5 --set outcome=reject --set reason=renovation --set request_id=00000000-0000-0000-0000-000000000002"},
 	// --- units ------------------------------------------------------------
 	{
 		Resource: "units", Verb: "list", Risk: RiskRead,
