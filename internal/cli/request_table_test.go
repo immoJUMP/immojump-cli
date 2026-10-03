@@ -116,9 +116,9 @@ func TestCommandRequestTable(t *testing.T) {
 			method: "PUT", path: "/api/activity-templates/activity_templates/8", body: `{"title":"X"}`},
 		{name: "templates delete", args: []string{"templates", "delete", "8"},
 			method: "DELETE", path: "/api/activity-templates/activity_templates/8"},
-		{name: "templates batch-move", args: []string{"templates", "batch-move", "--set", "from_status_id=1", "--set", "to_status_id=2"},
+		{name: "templates batch-move", args: []string{"templates", "batch-move", "--set", "target_status_id=2", "--set", `template_ids=["a1","b2"]`},
 			method: "POST", path: "/api/activity-templates/activity_templates/status/batch_move",
-			body: `{"from_status_id":1,"to_status_id":2}`},
+			body: `{"target_status_id":2,"template_ids":["a1","b2"]}`},
 
 		// --- documents ----------------------------------------------------
 		{name: "documents list", args: []string{"documents", "list"}, method: "GET", path: "/api/documents/documents"},

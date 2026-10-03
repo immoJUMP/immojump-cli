@@ -727,8 +727,8 @@ var Registry = []Spec{
 		Resource: "templates", Verb: "get", Risk: RiskRead,
 		Summary: "Eine Vorlage laden",
 		Method:  "GET", Path: "/api/activity-templates/activity_templates/{id}",
-		Args:    idArg("ID der Vorlage"),
-		Example: "immojump templates get 8",
+		Args:    idArg("ID der Vorlage (UUID)"),
+		Example: "immojump templates get 3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83",
 	},
 	{
 		Resource: "templates", Verb: "create", Risk: RiskWrite,
@@ -740,21 +740,21 @@ var Registry = []Spec{
 		Resource: "templates", Verb: "update", Risk: RiskWrite,
 		Summary: "Vorlage ändern",
 		Method:  "PUT", Path: "/api/activity-templates/activity_templates/{id}",
-		Args:    idArg("ID der Vorlage"),
-		Example: "immojump templates update 8 --set title='Exposé geprüft'",
+		Args:    idArg("ID der Vorlage (UUID)"),
+		Example: "immojump templates update 3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83 --set title='Exposé geprüft'",
 	},
 	{
 		Resource: "templates", Verb: "delete", Risk: RiskDestructive,
 		Summary: "Vorlage löschen",
 		Method:  "DELETE", Path: "/api/activity-templates/activity_templates/{id}",
-		Args:    idArg("ID der Vorlage"),
-		Example: "immojump templates delete 8",
+		Args:    idArg("ID der Vorlage (UUID)"),
+		Example: "immojump templates delete 3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83",
 	},
 	{
 		Resource: "templates", Verb: "batch-move", Risk: RiskWrite,
-		Summary: "Vorlagen einer Phase gesammelt in eine andere Phase verschieben",
+		Summary: "Mehrere Vorlagen gesammelt in eine Phase verschieben",
 		Method:  "POST", Path: "/api/activity-templates/activity_templates/status/batch_move",
-		Example: "immojump templates batch-move --set from_status_id=4 --set to_status_id=5",
+		Example: `immojump templates batch-move --set target_status_id=5 --set 'template_ids=["3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83"]'`,
 	},
 
 	// --- documents --------------------------------------------------------
