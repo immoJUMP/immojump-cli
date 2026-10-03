@@ -50,6 +50,11 @@ func TestCommandRequestTable(t *testing.T) {
 			method: "PUT", path: "/api/v2/immobilien/5", body: `{"name":"MFH"}`},
 		{name: "immobilien patch", args: []string{"immobilien", "patch", "5", "--set", "kaufpreis=225000"},
 			method: "PATCH", path: "/api/v2/immobilien/5", body: `{"kaufpreis":225000}`},
+		{name: "immobilien create mit --type", args: []string{"immobilien", "create", "--set", "name=MFH Köln", "--type", "MFH"},
+			method: "POST", path: "/api/v2/immobilien", body: `{"name":"MFH Köln","type":"MFH"}`},
+		// Bezeichnungen gehen unverändert raus — das Backend bildet sie auf den Code ab.
+		{name: "immobilien patch mit --type", args: []string{"immobilien", "patch", "5", "--type", "Gewerbe"},
+			method: "PATCH", path: "/api/v2/immobilien/5", body: `{"type":"Gewerbe"}`},
 		{name: "immobilien delete", args: []string{"immobilien", "delete", "5"}, method: "DELETE", path: "/api/v2/immobilien/5"},
 		{name: "immobilien contacts", args: []string{"immobilien", "contacts", "5"}, method: "GET", path: "/api/v2/immobilien/5/contacts"},
 		{name: "immobilien duplicate", args: []string{"immobilien", "duplicate", "5"},
