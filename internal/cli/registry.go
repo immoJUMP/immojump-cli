@@ -329,6 +329,11 @@ var GlobalFlags = []Flag{
 // Anmeldebestätigung reine Kontextverschwendung.
 const fullUserFlagDesc = "Vollständige Antwort von /api/user/me ausgeben statt id/username plus Rolle"
 
+// einheitentypDesc nennt die Werte des Enums UnitType (immo-calc
+// modules/unit.py). Einen anderen Wert („Wohnung“) lässt das Backend ohne
+// chris2k20/immo-calc#1841 erst am Postgres-Enum scheitern: HTTP 500.
+const einheitentypDesc = "Einheitentyp: wohnen, gewerbe, stellplatz, garage oder sonstiges"
+
 // idArg ist die häufigste Argument-Definition.
 func idArg(desc string) []Arg { return []Arg{{Name: "id", Desc: desc}} }
 
@@ -512,29 +517,93 @@ var Registry = []Spec{
 	},
 
 	// --- units ------------------------------------------------------------
+	// Jede neu angelegte Immobilie bringt eine leere Standard-Einheit „Einheit 1“
+	// mit (0 m², Miete 0). Die erste echte Einheit gehört dort hinein — eine
+	// zweite daneben ließe sie leer in der Mieterliste stehen.
 	{
 		Resource: "units", Verb: "list", Risk: RiskRead,
-		Summary: "Einheiten einer Immobilie auflisten",
+		Summary: "Einheiten einer Immobilie auflisten (neue Immobilien haben schon eine leere „Einheit 1“ — per units update befüllen)",
 		Method:  "GET", Path: "/api/units/immobilie/{immobilie-id}/units",
 		Args:    []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
 		Example: "immojump units list 5",
 	},
 	{
+		// Die Flags sind genau die Felder, die die Route liest
+		// (modules/routes/unit_routes.py) — mit den Defaults des Backends.
 		Resource: "units", Verb: "create", Risk: RiskWrite,
-		Summary: "Einheit zu einer Immobilie anlegen",
+		Summary: "Weitere Einheit anlegen (die leere „Einheit 1“ einer neuen Immobilie zuerst per units update befüllen)",
 		Method:  "POST", Path: "/api/units/unit/{immobilie-id}",
-		Args:    []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
-		Example: "immojump units create 5 --set einheit='WE 1'",
+		Args: []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
+		Flags: []Flag{
+			{Name: "einheit", Kind: FlagString, Desc: "Bezeichnung, z. B. „WE 2“ oder „EG links“"},
+			{Name: "type", Kind: FlagString, Desc: einheitentypDesc + " (ohne Angabe: wohnen)"},
+			{Name: "livingspace", Kind: FlagNumber, Desc: "Fläche in m²; bei Garage und Stellplatz 0"},
+			{Name: "rooms", Kind: FlagNumber, Desc: "Zimmerzahl, z. B. 2.5"},
+			{Name: "ist-rent", Kind: FlagNumber, Desc: "Ist-Kaltmiete in €/Monat (ohne Angabe: 0)"},
+			{Name: "soll-rent", Kind: FlagNumber, Desc: "Soll-Miete, erstes Szenario, in €/Monat (ohne Angabe: wie --ist-rent)"},
+			{Name: "soll-rent2", Kind: FlagNumber, Desc: "Soll-Miete, zweites Szenario, in €/Monat (ohne Angabe: wie --soll-rent)"},
+			{Name: "note", Kind: FlagString, Desc: "Notiz, z. B. Mieter oder Leerstand"},
+			{Name: "order", Kind: FlagNumber, Desc: "Position in der Mieterliste (ohne Angabe: 0, also vor „Einheit 1“ mit 1)"},
+			{Name: "lease-start-date", Kind: FlagString, Desc: "Mietbeginn als YYYY-MM-DD oder DD.MM.YYYY"},
+			{Name: "last-rent-increase-date", Kind: FlagString, Desc: "Letzte Mieterhöhung als YYYY-MM-DD oder DD.MM.YYYY"},
+		},
+		Body: []FlagBody{
+			{Flag: "einheit", Key: "einheit"},
+			{Flag: "type", Key: "type"},
+			{Flag: "livingspace", Key: "livingspace"},
+			{Flag: "rooms", Key: "rooms"},
+			{Flag: "ist-rent", Key: "ist_rent"},
+			{Flag: "soll-rent", Key: "soll_rent"},
+			{Flag: "soll-rent2", Key: "soll_rent2"},
+			{Flag: "note", Key: "note"},
+			{Flag: "order", Key: "order"},
+			{Flag: "lease-start-date", Key: "lease_start_date"},
+			{Flag: "last-rent-increase-date", Key: "last_rent_increase_date"},
+		},
+		Example: "immojump units create 5 --einheit 'WE 2' --livingspace 62.5 --rooms 2 --ist-rent 540 --order 2",
 	},
 	{
+		// Anders als create setzt update keine Defaults: Wer „Einheit 1“ nur mit
+		// --ist-rent befüllt, behält dort beide Soll-Mieten auf 0 (gemessen).
 		Resource: "units", Verb: "update", Risk: RiskWrite,
-		Summary: "Einheit ändern", Method: "PUT", Path: "/api/units/unit/{unit-id}",
-		Args:    []Arg{{Name: "unit-id", Desc: "ID der Einheit"}},
-		Example: "immojump units update 9 --set ist_rent=780",
+		Summary: "Einheit ändern (nur gesetzte Felder ändern sich; die Soll-Mieten ziehen nicht mit)",
+		Method:  "PUT", Path: "/api/units/unit/{unit-id}",
+		Args: []Arg{{Name: "unit-id", Desc: "ID der Einheit"}},
+		Flags: []Flag{
+			{Name: "einheit", Kind: FlagString, Desc: "Bezeichnung, z. B. „WE 1“"},
+			{Name: "type", Kind: FlagString, Desc: einheitentypDesc},
+			{Name: "livingspace", Kind: FlagNumber, Desc: "Fläche in m²; bei Garage und Stellplatz 0"},
+			{Name: "rooms", Kind: FlagNumber, Desc: "Zimmerzahl"},
+			{Name: "ist-rent", Kind: FlagNumber, Desc: "Ist-Kaltmiete in €/Monat"},
+			{Name: "soll-rent", Kind: FlagNumber, Desc: "Soll-Miete, erstes Szenario, in €/Monat („Einheit 1“ startet mit 0)"},
+			{Name: "soll-rent2", Kind: FlagNumber, Desc: "Soll-Miete, zweites Szenario, in €/Monat („Einheit 1“ startet mit 0)"},
+			{Name: "note", Kind: FlagString, Desc: "Notiz, z. B. Mieter oder Leerstand"},
+			{Name: "order", Kind: FlagNumber, Desc: "Position in der Mieterliste"},
+			{Name: "lease-start-date", Kind: FlagString,
+				Desc: "Mietbeginn als YYYY-MM-DD oder DD.MM.YYYY (löschen: --set lease_start_date=null)"},
+			{Name: "last-rent-increase-date", Kind: FlagString,
+				Desc: "Letzte Mieterhöhung als YYYY-MM-DD oder DD.MM.YYYY (löschen: --set last_rent_increase_date=null)"},
+		},
+		Body: []FlagBody{
+			{Flag: "einheit", Key: "einheit"},
+			{Flag: "type", Key: "type"},
+			{Flag: "livingspace", Key: "livingspace"},
+			{Flag: "rooms", Key: "rooms"},
+			{Flag: "ist-rent", Key: "ist_rent"},
+			{Flag: "soll-rent", Key: "soll_rent"},
+			{Flag: "soll-rent2", Key: "soll_rent2"},
+			{Flag: "note", Key: "note"},
+			{Flag: "order", Key: "order"},
+			{Flag: "lease-start-date", Key: "lease_start_date"},
+			{Flag: "last-rent-increase-date", Key: "last_rent_increase_date"},
+		},
+		EmptyBodyHint: "Nichts zu ändern. Setze mindestens ein Feld, z. B. --ist-rent 780 (alle: immojump units update --help)",
+		Example:       "immojump units update 9 --einheit 'WE 1' --livingspace 58 --ist-rent 480 --soll-rent 480 --soll-rent2 480",
 	},
 	{
 		Resource: "units", Verb: "delete", Risk: RiskDestructive,
-		Summary: "Einheit löschen", Method: "DELETE", Path: "/api/units/unit/{unit-id}",
+		Summary: "Einheit löschen (die letzte Einheit einer Immobilie lehnt das Backend mit 400 ab)",
+		Method:  "DELETE", Path: "/api/units/unit/{unit-id}",
 		Args:    []Arg{{Name: "unit-id", Desc: "ID der Einheit"}},
 		Example: "immojump units delete 9",
 	},

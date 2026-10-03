@@ -443,7 +443,7 @@ Einheiten einer Immobilie
 
 #### units list
 
-Einheiten einer Immobilie auflisten
+Einheiten einer Immobilie auflisten (neue Immobilien haben schon eine leere „Einheit 1“ — per units update befüllen)
 
 - **Aufruf:** `immojump units list <immobilie-id>`
 - **Endpoint:** `GET /api/units/immobilie/{immobilie-id}/units`
@@ -454,31 +454,55 @@ Einheiten einer Immobilie auflisten
 
 #### units create
 
-Einheit zu einer Immobilie anlegen
+Weitere Einheit anlegen (die leere „Einheit 1“ einer neuen Immobilie zuerst per units update befüllen)
 
 - **Aufruf:** `immojump units create <immobilie-id>`
 - **Endpoint:** `POST /api/units/unit/{immobilie-id}`
 - **Risk:** `write`
 - **Argumente:**
   - `immobilie-id` — ID der Immobilie
+- **Flags:**
+  - `--einheit <wert>` — Bezeichnung, z. B. „WE 2“ oder „EG links“
+  - `--type <wert>` — Einheitentyp: wohnen, gewerbe, stellplatz, garage oder sonstiges (ohne Angabe: wohnen)
+  - `--livingspace <wert>` — Fläche in m²; bei Garage und Stellplatz 0
+  - `--rooms <wert>` — Zimmerzahl, z. B. 2.5
+  - `--ist-rent <wert>` — Ist-Kaltmiete in €/Monat (ohne Angabe: 0)
+  - `--soll-rent <wert>` — Soll-Miete, erstes Szenario, in €/Monat (ohne Angabe: wie --ist-rent)
+  - `--soll-rent2 <wert>` — Soll-Miete, zweites Szenario, in €/Monat (ohne Angabe: wie --soll-rent)
+  - `--note <wert>` — Notiz, z. B. Mieter oder Leerstand
+  - `--order <wert>` — Position in der Mieterliste (ohne Angabe: 0, also vor „Einheit 1“ mit 1)
+  - `--lease-start-date <wert>` — Mietbeginn als YYYY-MM-DD oder DD.MM.YYYY
+  - `--last-rent-increase-date <wert>` — Letzte Mieterhöhung als YYYY-MM-DD oder DD.MM.YYYY
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
-- **Beispiel:** `immojump units create 5 --set einheit='WE 1'`
+- **Beispiel:** `immojump units create 5 --einheit 'WE 2' --livingspace 62.5 --rooms 2 --ist-rent 540 --order 2`
 
 #### units update
 
-Einheit ändern
+Einheit ändern (nur gesetzte Felder ändern sich; die Soll-Mieten ziehen nicht mit)
 
 - **Aufruf:** `immojump units update <unit-id>`
 - **Endpoint:** `PUT /api/units/unit/{unit-id}`
 - **Risk:** `write`
 - **Argumente:**
   - `unit-id` — ID der Einheit
+- **Flags:**
+  - `--einheit <wert>` — Bezeichnung, z. B. „WE 1“
+  - `--type <wert>` — Einheitentyp: wohnen, gewerbe, stellplatz, garage oder sonstiges
+  - `--livingspace <wert>` — Fläche in m²; bei Garage und Stellplatz 0
+  - `--rooms <wert>` — Zimmerzahl
+  - `--ist-rent <wert>` — Ist-Kaltmiete in €/Monat
+  - `--soll-rent <wert>` — Soll-Miete, erstes Szenario, in €/Monat („Einheit 1“ startet mit 0)
+  - `--soll-rent2 <wert>` — Soll-Miete, zweites Szenario, in €/Monat („Einheit 1“ startet mit 0)
+  - `--note <wert>` — Notiz, z. B. Mieter oder Leerstand
+  - `--order <wert>` — Position in der Mieterliste
+  - `--lease-start-date <wert>` — Mietbeginn als YYYY-MM-DD oder DD.MM.YYYY (löschen: --set lease_start_date=null)
+  - `--last-rent-increase-date <wert>` — Letzte Mieterhöhung als YYYY-MM-DD oder DD.MM.YYYY (löschen: --set last_rent_increase_date=null)
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
-- **Beispiel:** `immojump units update 9 --set ist_rent=780`
+- **Beispiel:** `immojump units update 9 --einheit 'WE 1' --livingspace 58 --ist-rent 480 --soll-rent 480 --soll-rent2 480`
 
 #### units delete
 
-Einheit löschen
+Einheit löschen (die letzte Einheit einer Immobilie lehnt das Backend mit 400 ab)
 
 - **Aufruf:** `immojump units delete <unit-id>`
 - **Endpoint:** `DELETE /api/units/unit/{unit-id}`
