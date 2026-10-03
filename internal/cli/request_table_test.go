@@ -76,6 +76,25 @@ func TestCommandRequestTable(t *testing.T) {
 			method: "POST", path: "/api/units/unit/5", body: `{"einheit":"WE 1"}`},
 		{name: "units update", args: []string{"units", "update", "9", "--set", "ist_rent=780"},
 			method: "PUT", path: "/api/units/unit/9", body: `{"ist_rent":780}`},
+		{name: "units create mit allen Feld-Flags", args: []string{"units", "create", "5",
+			"--einheit", "WE 2", "--type", "gewerbe", "--livingspace", "62.5", "--rooms", "2",
+			"--ist-rent", "540", "--soll-rent", "600", "--soll-rent2", "650", "--note", "Leerstand",
+			"--order", "2", "--lease-start-date", "01.03.2021", "--last-rent-increase-date", "2024-03-01"},
+			method: "POST", path: "/api/units/unit/5",
+			body: `{"einheit":"WE 2","type":"gewerbe","livingspace":62.5,"rooms":2,"ist_rent":540,` +
+				`"soll_rent":600,"soll_rent2":650,"note":"Leerstand","order":2,` +
+				`"lease_start_date":"01.03.2021","last_rent_increase_date":"2024-03-01"}`},
+		// So wird die leere „Einheit 1“ einer neuen Immobilie befüllt — mit den
+		// Soll-Mieten, denn update setzt keine Defaults (dort stehen sonst 0).
+		{name: "units update mit Feld-Flags", args: []string{"units", "update", "9",
+			"--einheit", "WE 1", "--livingspace", "58", "--ist-rent", "480", "--soll-rent", "480", "--soll-rent2", "480"},
+			method: "PUT", path: "/api/units/unit/9",
+			body: `{"einheit":"WE 1","livingspace":58,"ist_rent":480,"soll_rent":480,"soll_rent2":480}`},
+		{name: "units update Flag neben --set", args: []string{"units", "update", "9", "--ist-rent", "720", "--set", "note=Mieterhöhung 2026"},
+			method: "PUT", path: "/api/units/unit/9", body: `{"ist_rent":720,"note":"Mieterhöhung 2026"}`},
+		// Ein Datum löscht nur null — das geht über --set.
+		{name: "units update löscht ein Datum", args: []string{"units", "update", "9", "--set", "lease_start_date=null"},
+			method: "PUT", path: "/api/units/unit/9", body: `{"lease_start_date":null}`},
 		{name: "units delete", args: []string{"units", "delete", "9"}, method: "DELETE", path: "/api/units/unit/9"},
 
 		// --- activities ---------------------------------------------------
