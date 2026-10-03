@@ -384,7 +384,7 @@ Immobilien
 | `immobilien search` | read | `GET /api/v2/immobilien/search` |
 | `immobilien get` | read | `GET /api/v2/immobilien/{id}` |
 | `immobilien create` | write | `POST /api/v2/immobilien` |
-| `immobilien update` | write | `PUT /api/v2/immobilien/{id}` |
+| `immobilien set-status` | write | `PUT /api/v2/immobilien/{id}` |
 | `immobilien patch` | write | `PATCH /api/v2/immobilien/{id}` |
 | `immobilien delete` | destructive | `DELETE /api/v2/immobilien/{id}` |
 | `immobilien contacts` | read | `GET /api/v2/immobilien/{id}/contacts` |
@@ -445,17 +445,20 @@ Immobilie anlegen
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
 - **Beispiel:** `immojump immobilien create --set name='MFH Köln' --type MFH`
 
-#### immobilien update
+#### immobilien set-status
 
-Immobilie vollständig ersetzen
+Immobilie in eine andere Phase schieben oder aus der Pipeline nehmen (Felder ändert patch)
 
-- **Aufruf:** `immojump immobilien update <id>`
+- **Aufruf:** `immojump immobilien set-status <id>`
 - **Endpoint:** `PUT /api/v2/immobilien/{id}`
 - **Risk:** `write`
 - **Argumente:**
   - `id` — ID der Immobilie
+- **Flags:**
+  - `--status-id <wert>` — ID der Ziel-Phase (pipelines statuses <pipeline-id>)
+  - `--remove-status` — Aus der Pipeline nehmen (schickt status_id: null)
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
-- **Beispiel:** `immojump immobilien update 5 --body @immobilie.json`
+- **Beispiel:** `immojump immobilien set-status 5 --status-id 7`
 
 #### immobilien patch
 
