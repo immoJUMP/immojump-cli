@@ -357,7 +357,7 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
 - `auth` login/status (kompakt, `--full` für die vollständige Antwort),
   `context` list/use/current/delete
 - `contacts` list/get/create/update/set-status/delete/activities/immobilien
-- `immobilien` list/search/get/create/update/patch/delete/contacts/duplicate
+- `immobilien` list/search/get/create/set-status/patch/delete/contacts/duplicate
 - `units` list/create/update/delete
 - `activities` list/get/for-immobilie/create/update/delete
 - `pipelines` list/get/create/update/delete/statuses/add-status/export/import

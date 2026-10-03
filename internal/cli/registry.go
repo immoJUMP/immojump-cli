@@ -492,10 +492,22 @@ var Registry = []Spec{
 		Example: `immojump immobilien create --set name='MFH Köln' --type MFH`,
 	},
 	{
-		Resource: "immobilien", Verb: "update", Risk: RiskWrite,
-		Summary: "Immobilie vollständig ersetzen", Method: "PUT", Path: "/api/v2/immobilien/{id}",
-		Args:    idArg("ID der Immobilie"),
-		Example: "immojump immobilien update 5 --body @immobilie.json",
+		// PUT auf die Immobilie liest im Backend nur status_id — der frühere
+		// Befehl `update` versprach ein Vollupdate und verlor jede Feldänderung.
+		Resource: "immobilien", Verb: "set-status", Risk: RiskWrite,
+		Summary: "Immobilie in eine andere Phase schieben oder aus der Pipeline nehmen (Felder ändert patch)",
+		Method:  "PUT", Path: "/api/v2/immobilien/{id}",
+		Args: idArg("ID der Immobilie"),
+		Flags: []Flag{
+			{Name: "status-id", Kind: FlagNumber, Desc: "ID der Ziel-Phase (pipelines statuses <pipeline-id>)"},
+			{Name: "remove-status", Kind: FlagBool, Desc: "Aus der Pipeline nehmen (schickt status_id: null)"},
+		},
+		Body: []FlagBody{
+			{Flag: "status-id", Key: "status_id"},
+			{Flag: "remove-status", Key: "status_id", Null: true},
+		},
+		EmptyBodyHint: "Ziel fehlt: --status-id <id> oder --remove-status",
+		Example:       "immojump immobilien set-status 5 --status-id 7",
 	},
 	{
 		Resource: "immobilien", Verb: "patch", Risk: RiskWrite,
