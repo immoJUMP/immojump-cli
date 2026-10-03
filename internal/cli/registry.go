@@ -543,7 +543,7 @@ var Registry = []Spec{
 			{Name: "soll-rent", Kind: FlagNumber, Desc: "Soll-Miete, erstes Szenario, in €/Monat (ohne Angabe: wie --ist-rent)"},
 			{Name: "soll-rent2", Kind: FlagNumber, Desc: "Soll-Miete, zweites Szenario, in €/Monat (ohne Angabe: wie --soll-rent)"},
 			{Name: "note", Kind: FlagString, Desc: "Notiz, z. B. Mieter oder Leerstand"},
-			{Name: "order", Kind: FlagNumber, Desc: "Position in der Mieterliste (ohne Angabe: 0, also vor „Einheit 1“ mit 1)"},
+			{Name: "order", Kind: FlagNumber, Desc: "Position in der Mieterliste (ohne Angabe: ans Ende, hinter „Einheit 1“ und alle vorhandenen)"},
 			{Name: "lease-start-date", Kind: FlagString, Desc: "Mietbeginn als YYYY-MM-DD oder DD.MM.YYYY"},
 			{Name: "last-rent-increase-date", Kind: FlagString, Desc: "Letzte Mieterhöhung als YYYY-MM-DD oder DD.MM.YYYY"},
 		},
@@ -560,7 +560,7 @@ var Registry = []Spec{
 			{Flag: "lease-start-date", Key: "lease_start_date"},
 			{Flag: "last-rent-increase-date", Key: "last_rent_increase_date"},
 		},
-		Example: "immojump units create 5 --einheit 'WE 2' --livingspace 62.5 --rooms 2 --ist-rent 540 --order 2",
+		Example: "immojump units create 5 --einheit 'WE 2' --livingspace 62.5 --rooms 2 --ist-rent 540",
 	},
 	{
 		// Anders als create setzt update keine Defaults: Wer „Einheit 1“ nur mit

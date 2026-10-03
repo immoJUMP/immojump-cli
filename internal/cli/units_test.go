@@ -155,15 +155,22 @@ func TestUnitsUpdateSaysSollRentsDoNotFollow(t *testing.T) {
 	}
 }
 
-// Ohne --order legt die Route mit 0 an; „Einheit 1“ hat 1. Neue Einheiten
-// stehen dann in der Mieterliste vor ihr.
-func TestUnitsCreateOrderNamesTheDefaultUnit(t *testing.T) {
-	flag, ok := findFlag(unitSpec(t, "create"), "order")
+// Ohne --order hängt das Backend die Einheit hinter die vorhandenen
+// (max(order)+1). Früher legte es mit 0 an, also vor „Einheit 1“ (order 1) —
+// deshalb setzte das Beispiel --order 2. Die Beschreibung nennt das Anhängen
+// und „Einheit 1“, das Beispiel braucht kein --order mehr.
+func TestUnitsCreateOrderAppendsByDefault(t *testing.T) {
+	spec := unitSpec(t, "create")
+	flag, ok := findFlag(spec, "order")
 	if !ok {
 		t.Fatal("units create: --order fehlt")
 	}
-	if !strings.Contains(flag.Desc, "Einheit 1") {
-		t.Errorf("--order soll die Position von „Einheit 1“ nennen: %q", flag.Desc)
+	if !strings.Contains(flag.Desc, "ans Ende") || !strings.Contains(flag.Desc, "Einheit 1") ||
+		strings.Contains(flag.Desc, "ohne Angabe: 0") {
+		t.Errorf("--order soll das Anhängen hinter „Einheit 1“ beschreiben: %q", flag.Desc)
+	}
+	if strings.Contains(spec.Example, "--order") {
+		t.Errorf("das Beispiel soll ohne --order auskommen: %q", spec.Example)
 	}
 }
 

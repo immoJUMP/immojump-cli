@@ -470,11 +470,11 @@ Weitere Einheit anlegen (die leere „Einheit 1“ einer neuen Immobilie zuerst 
   - `--soll-rent <wert>` — Soll-Miete, erstes Szenario, in €/Monat (ohne Angabe: wie --ist-rent)
   - `--soll-rent2 <wert>` — Soll-Miete, zweites Szenario, in €/Monat (ohne Angabe: wie --soll-rent)
   - `--note <wert>` — Notiz, z. B. Mieter oder Leerstand
-  - `--order <wert>` — Position in der Mieterliste (ohne Angabe: 0, also vor „Einheit 1“ mit 1)
+  - `--order <wert>` — Position in der Mieterliste (ohne Angabe: ans Ende, hinter „Einheit 1“ und alle vorhandenen)
   - `--lease-start-date <wert>` — Mietbeginn als YYYY-MM-DD oder DD.MM.YYYY
   - `--last-rent-increase-date <wert>` — Letzte Mieterhöhung als YYYY-MM-DD oder DD.MM.YYYY
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
-- **Beispiel:** `immojump units create 5 --einheit 'WE 2' --livingspace 62.5 --rooms 2 --ist-rent 540 --order 2`
+- **Beispiel:** `immojump units create 5 --einheit 'WE 2' --livingspace 62.5 --rooms 2 --ist-rent 540`
 
 #### units update
 
