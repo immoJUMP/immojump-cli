@@ -500,7 +500,7 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "immobilien", Verb: "patch", Risk: RiskWrite,
-		Summary: "Einzelne Felder einer Immobilie ändern", Method: "PATCH", Path: "/api/v2/immobilien/{id}",
+		Summary: "Einzelne Felder einer Immobilie ändern (Phase ändert set-status)", Method: "PATCH", Path: "/api/v2/immobilien/{id}",
 		Args:    idArg("ID der Immobilie"),
 		Example: "immojump immobilien patch 5 --set kaufpreis=239000",
 	},

@@ -389,7 +389,7 @@ Immobilie in eine andere Phase schieben oder aus der Pipeline nehmen (Felder än
 
 #### immobilien patch
 
-Einzelne Felder einer Immobilie ändern
+Einzelne Felder einer Immobilie ändern (Phase ändert set-status)
 
 - **Aufruf:** `immojump immobilien patch <id>`
 - **Endpoint:** `PATCH /api/v2/immobilien/{id}`
