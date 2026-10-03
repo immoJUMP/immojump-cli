@@ -333,6 +333,12 @@ const fullUserFlagDesc = "Vollständige Antwort von /api/user/me ausgeben statt 
 // idArg ist die häufigste Argument-Definition.
 func idArg(desc string) []Arg { return []Arg{{Name: "id", Desc: desc}} }
 
+// objekttypDesc nennt die Codes, die das Backend für `type` annimmt
+// (modules/property_types.py). Bezeichnungen wie „Mehrfamilienhaus“ bildet es
+// selbst auf den Code ab; einen unbekannten Typ lehnt es mit 400 und
+// valid_values ab, statt ihn wie früher erst beim INSERT scheitern zu lassen.
+const objekttypDesc = "Objekttyp: ETW, EFH, MFH, WGH, GEW oder Sonstiges"
+
 // Registry ist die vollständige Befehlstabelle.
 var Registry = []Spec{
 	// --- auth -------------------------------------------------------------
@@ -479,7 +485,11 @@ var Registry = []Spec{
 	{
 		Resource: "immobilien", Verb: "create", Risk: RiskWrite,
 		Summary: "Immobilie anlegen", Method: "POST", Path: "/api/v2/immobilien",
-		Example: `immojump immobilien create --set name='MFH Köln' --set type=MFH`,
+		Flags: []Flag{
+			{Name: "type", Kind: FlagString, Desc: objekttypDesc + " (ohne Angabe: ETW)"},
+		},
+		Body:    []FlagBody{{Flag: "type", Key: "type"}},
+		Example: `immojump immobilien create --set name='MFH Köln' --type MFH`,
 	},
 	{
 		Resource: "immobilien", Verb: "update", Risk: RiskWrite,
@@ -490,7 +500,11 @@ var Registry = []Spec{
 	{
 		Resource: "immobilien", Verb: "patch", Risk: RiskWrite,
 		Summary: "Einzelne Felder einer Immobilie ändern", Method: "PATCH", Path: "/api/v2/immobilien/{id}",
-		Args:    idArg("ID der Immobilie"),
+		Args: idArg("ID der Immobilie"),
+		Flags: []Flag{
+			{Name: "type", Kind: FlagString, Desc: objekttypDesc},
+		},
+		Body:    []FlagBody{{Flag: "type", Key: "type"}},
 		Example: "immojump immobilien patch 5 --set kaufpreis=239000",
 	},
 	{
