@@ -516,7 +516,7 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "immobilien", Verb: "patch", Risk: RiskWrite,
-		Summary: "Einzelne Felder einer Immobilie ändern", Method: "PATCH", Path: "/api/v2/immobilien/{id}",
+		Summary: "Einzelne Felder einer Immobilie ändern (Phase ändert set-status)", Method: "PATCH", Path: "/api/v2/immobilien/{id}",
 		Args: idArg("ID der Immobilie"),
 		Flags: []Flag{
 			{Name: "type", Kind: FlagString, Desc: objekttypDesc},
