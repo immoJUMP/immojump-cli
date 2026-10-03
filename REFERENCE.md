@@ -440,8 +440,10 @@ Immobilie anlegen
 - **Aufruf:** `immojump immobilien create`
 - **Endpoint:** `POST /api/v2/immobilien`
 - **Risk:** `write`
+- **Flags:**
+  - `--type <wert>` — Objekttyp: ETW, EFH, MFH, WGH, GEW oder Sonstiges (ohne Angabe: ETW)
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
-- **Beispiel:** `immojump immobilien create --set name='MFH Köln' --set type=MFH`
+- **Beispiel:** `immojump immobilien create --set name='MFH Köln' --type MFH`
 
 #### immobilien update
 
@@ -464,6 +466,8 @@ Einzelne Felder einer Immobilie ändern
 - **Risk:** `write`
 - **Argumente:**
   - `id` — ID der Immobilie
+- **Flags:**
+  - `--type <wert>` — Objekttyp: ETW, EFH, MFH, WGH, GEW oder Sonstiges
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
 - **Beispiel:** `immojump immobilien patch 5 --set kaufpreis=239000`
 
