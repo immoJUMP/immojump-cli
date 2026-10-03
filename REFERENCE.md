@@ -930,8 +930,8 @@ Eine Vorlage laden
 - **Endpoint:** `GET /api/activity-templates/activity_templates/{id}`
 - **Risk:** `read`
 - **Argumente:**
-  - `id` — ID der Vorlage
-- **Beispiel:** `immojump templates get 8`
+  - `id` — ID der Vorlage (UUID)
+- **Beispiel:** `immojump templates get 3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83`
 
 #### templates create
 
@@ -951,9 +951,9 @@ Vorlage ändern
 - **Endpoint:** `PUT /api/activity-templates/activity_templates/{id}`
 - **Risk:** `write`
 - **Argumente:**
-  - `id` — ID der Vorlage
+  - `id` — ID der Vorlage (UUID)
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
-- **Beispiel:** `immojump templates update 8 --set title='Exposé geprüft'`
+- **Beispiel:** `immojump templates update 3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83 --set title='Exposé geprüft'`
 
 #### templates delete
 
@@ -963,18 +963,18 @@ Vorlage löschen
 - **Endpoint:** `DELETE /api/activity-templates/activity_templates/{id}`
 - **Risk:** `destructive`
 - **Argumente:**
-  - `id` — ID der Vorlage
-- **Beispiel:** `immojump templates delete 8`
+  - `id` — ID der Vorlage (UUID)
+- **Beispiel:** `immojump templates delete 3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83`
 
 #### templates batch-move
 
-Vorlagen einer Phase gesammelt in eine andere Phase verschieben
+Mehrere Vorlagen gesammelt in eine Phase verschieben
 
 - **Aufruf:** `immojump templates batch-move`
 - **Endpoint:** `POST /api/activity-templates/activity_templates/status/batch_move`
 - **Risk:** `write`
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
-- **Beispiel:** `immojump templates batch-move --set from_status_id=4 --set to_status_id=5`
+- **Beispiel:** `immojump templates batch-move --set target_status_id=5 --set 'template_ids=["3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83"]'`
 
 ### documents
 
