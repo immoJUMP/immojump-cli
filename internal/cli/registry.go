@@ -607,7 +607,8 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "pipelines", Verb: "update", Risk: RiskWrite,
-		Summary: "Pipeline ändern", Method: "PUT", Path: "/api/pipelines/pipelines/{id}",
+		Summary: "Pipeline ändern (entity_type nur als Admin und nur, wenn alle Phasen schon diesen Typ haben)",
+		Method:  "PUT", Path: "/api/pipelines/pipelines/{id}",
 		Args:    idArg("ID der Pipeline"),
 		Example: "immojump pipelines update 2 --set name='Ankauf 2026'",
 	},
@@ -656,7 +657,8 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "statuses", Verb: "update", Risk: RiskWrite,
-		Summary: "Phase ändern", Method: "PUT", Path: "/api/statuses/statuses/{id}",
+		Summary: "Phase ändern (pipeline_id nur innerhalb derselben Organisation und desselben Typs)",
+		Method:  "PUT", Path: "/api/statuses/statuses/{id}",
 		Args:    idArg("ID der Phase"),
 		Example: "immojump statuses update 4 --set name='Geprüft'",
 	},

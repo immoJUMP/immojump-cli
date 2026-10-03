@@ -622,7 +622,7 @@ Eine Pipeline laden
 
 #### pipelines update
 
-Pipeline ändern
+Pipeline ändern (entity_type nur als Admin und nur, wenn alle Phasen schon diesen Typ haben)
 
 - **Aufruf:** `immojump pipelines update <id>`
 - **Endpoint:** `PUT /api/pipelines/pipelines/{id}`
@@ -716,7 +716,7 @@ Alle Phasen auflisten
 
 #### statuses update
 
-Phase ändern
+Phase ändern (pipeline_id nur innerhalb derselben Organisation und desselben Typs)
 
 - **Aufruf:** `immojump statuses update <id>`
 - **Endpoint:** `PUT /api/statuses/statuses/{id}`
