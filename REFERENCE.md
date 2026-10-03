@@ -601,7 +601,7 @@ Pipelines der Organisation auflisten
 
 #### pipelines create
 
-Pipeline anlegen
+Pipeline anlegen (nur Admins der Organisation)
 
 - **Aufruf:** `immojump pipelines create`
 - **Endpoint:** `POST /api/pipelines/{org}/pipelines`
@@ -634,7 +634,7 @@ Pipeline ändern
 
 #### pipelines delete
 
-Pipeline löschen
+Pipeline löschen (nur Admins; Objekte verlieren ihre Phase, Phasen und Vorlagen werden gelöscht)
 
 - **Aufruf:** `immojump pipelines delete <id>`
 - **Endpoint:** `DELETE /api/pipelines/pipelines/{id}`
@@ -680,7 +680,7 @@ Pipeline als YAML exportieren
 
 #### pipelines import
 
-Pipeline aus YAML importieren
+Pipeline aus YAML importieren (nur Admins der Organisation)
 
 - **Aufruf:** `immojump pipelines import`
 - **Endpoint:** `POST /api/pipelines/pipelines/import`

@@ -596,7 +596,7 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "pipelines", Verb: "create", Risk: RiskWrite,
-		Summary: "Pipeline anlegen", Method: "POST", Path: "/api/pipelines/{org}/pipelines",
+		Summary: "Pipeline anlegen (nur Admins der Organisation)", Method: "POST", Path: "/api/pipelines/{org}/pipelines",
 		Example: "immojump pipelines create --set name=Ankauf --set entity_type=immobilie",
 	},
 	{
@@ -613,7 +613,8 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "pipelines", Verb: "delete", Risk: RiskDestructive,
-		Summary: "Pipeline löschen", Method: "DELETE", Path: "/api/pipelines/pipelines/{id}",
+		Summary: "Pipeline löschen (nur Admins; Objekte verlieren ihre Phase, Phasen und Vorlagen werden gelöscht)",
+		Method:  "DELETE", Path: "/api/pipelines/pipelines/{id}",
 		Args:    idArg("ID der Pipeline"),
 		Example: "immojump pipelines delete 2",
 	},
@@ -638,7 +639,7 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "pipelines", Verb: "import", Risk: RiskWrite, Special: SpecialPipelineImport,
-		Summary: "Pipeline aus YAML importieren", Method: "POST", Path: "/api/pipelines/pipelines/import",
+		Summary: "Pipeline aus YAML importieren (nur Admins der Organisation)", Method: "POST", Path: "/api/pipelines/pipelines/import",
 		Flags: []Flag{
 			{Name: "file", Kind: FlagString, Desc: "YAML-Datei; ohne Angabe wird stdin gelesen"},
 		},
