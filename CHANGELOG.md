@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.8.0](https://github.com/immoJUMP/immojump-cli/compare/v0.7.0...v0.8.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **immobilien:** `immobilien update` entfällt. Den Status setzt `immobilien set-status <id> --status-id <id>` (bzw. `--remove-status`), Felder ändert `immobilien patch <id>`.
+
+### Features
+
+* **immobilien:** --type nennt die erlaubten Objekttypen ([211b79e](https://github.com/immoJUMP/immojump-cli/commit/211b79e54719e1cc22dabea66b866a120eb6ba04))
+* **theo-intelligence:** expose property assessment and investor feedback ([71174b4](https://github.com/immoJUMP/immojump-cli/commit/71174b497f2bce0c1bb244567ce577f7f45a07fa))
+* **units:** Feld-Flags für create/update und Hinweis auf „Einheit 1“ ([75a99d5](https://github.com/immoJUMP/immojump-cli/commit/75a99d598561fa1966e7a28581c085fd7456d853))
+
+
+### Bug Fixes
+
+* **immobilien:** set-status statt eines Vollupdates, das keines war ([8974ecc](https://github.com/immoJUMP/immojump-cli/commit/8974ecca37a6356280bfea2c5d5ecbe5005b868e))
+* **templates:** batch-move-Beispiel folgt dem Backend-Vertrag, Vorlagen-IDs als UUID ([3fa7b35](https://github.com/immoJUMP/immojump-cli/commit/3fa7b3548c39318b044fff5d24bceacd506bfd8e))
+
 ## [0.7.0](https://github.com/immoJUMP/immojump-cli/compare/v0.6.0...v0.7.0) (2026-09-01)
 
 
