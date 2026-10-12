@@ -325,7 +325,8 @@ immojump email list -q is_read=false -q per_page=20 \
   --fields items.id,items.subject,items.from_email
 
 # 2. Eine Nachricht im Volltext lesen
-#    Achtung: Das Öffnen markiert sie als gelesen — genau wie in der Web-App.
+#    Das Lesen ändert nichts am Postfach: Die Nachricht bleibt ungelesen,
+#    bis du sie in Schritt 5 ausdrücklich mit `email mark-read` markierst.
 immojump email get 3f2a…
 
 # 3. Alles zu einem Kontakt oder einer Immobilie im Zusammenhang
