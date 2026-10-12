@@ -1102,10 +1102,10 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "email", Verb: "get", Risk: RiskRead,
-		// Der Nebeneffekt gehoert in die Summary, nicht in einen Kommentar:
-		// Die Route markiert die Nachricht beim Oeffnen als gelesen. Ein
-		// Agent, der stumm 50 Mails auf gelesen setzt, ist eine Beschwerde.
-		Summary: "Eine Nachricht mit vollem Text laden — markiert sie dabei als gelesen",
+		// Seit immo-calc PR #1947 laesst die Route den Gelesen-Status in Ruhe
+		// (vorher setzte jedes Durchsehen das \Seen-Flag im Postfach des
+		// Kunden). Wer als gelesen markieren will, tut das ausdruecklich.
+		Summary: "Eine Nachricht mit vollem Text laden — ändert den Gelesen-Status nicht (dafür `email mark-read`)",
 		Method:  "GET", Path: "/api/email-messages/{id}",
 		Args:    idArg("ID der Nachricht"),
 		Example: "immojump email get 3f2a…",

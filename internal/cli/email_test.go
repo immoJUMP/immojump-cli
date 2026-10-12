@@ -141,12 +141,13 @@ func TestEmailFolderDeleteIsDestructive(t *testing.T) {
 	}
 }
 
-// TestEmailGetAnnouncesItsSideEffect: GET /api/email-messages/<id> markiert
-// die Nachricht beim Öffnen als gelesen. Das ist eine Zustandsänderung in
-// einem Befehl mit Risk read — vertretbar nur, solange sie in --help, docs
-// und schema steht. Ein Agent, der stumm 50 Mails als gelesen markiert, ist
-// eine Kundenbeschwerde.
-func TestEmailGetAnnouncesItsSideEffect(t *testing.T) {
+// TestEmailGetLeavesReadStateAlone: Seit immo-calc PR #1947 markiert
+// GET /api/email-messages/<id> die Nachricht NICHT mehr als gelesen — vorher
+// setzte jedes Durchsehen per CLI/MCP/n8n das \Seen-Flag im IMAP-Postfach des
+// Kunden. Die Doku darf den alten Nebeneffekt nicht mehr behaupten (sonst
+// verlässt sich ein Agent darauf und lässt alles ungelesen liegen), und sie
+// muss den Weg nennen, der den Status wirklich setzt: `email mark-read`.
+func TestEmailGetLeavesReadStateAlone(t *testing.T) {
 	spec, ok := Lookup("email", "get")
 	if !ok {
 		t.Fatal("email get fehlt in der Registry")
@@ -154,15 +155,15 @@ func TestEmailGetAnnouncesItsSideEffect(t *testing.T) {
 	if spec.Risk != RiskRead {
 		t.Errorf("Risk = %q, want %q", spec.Risk, RiskRead)
 	}
-	if !strings.Contains(strings.ToLower(spec.Summary), "gelesen") {
-		t.Errorf("Summary muss den Nebeneffekt nennen (markiert als gelesen): %q", spec.Summary)
+	if strings.Contains(strings.ToLower(spec.Summary), "markiert") {
+		t.Errorf("Summary behauptet einen Nebeneffekt, den die Route nicht mehr hat: %q", spec.Summary)
 	}
 
-	// Und er muss beim Aufrufer wirklich ankommen, nicht nur in der Struktur.
+	// Und der Hinweis muss beim Aufrufer wirklich ankommen, nicht nur in der Struktur.
 	h := newHarness(t)
 	_, help, _ := h.run("email", "get", "--help")
-	if !strings.Contains(strings.ToLower(help), "gelesen") {
-		t.Errorf("--help soll den Nebeneffekt zeigen:\n%s", help)
+	if !strings.Contains(help, "email mark-read") {
+		t.Errorf("--help soll auf `email mark-read` verweisen:\n%s", help)
 	}
 }
 

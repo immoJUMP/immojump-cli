@@ -1323,7 +1323,7 @@ Nachrichten im Postfach auflisten
 
 #### email get
 
-Eine Nachricht mit vollem Text laden — markiert sie dabei als gelesen
+Eine Nachricht mit vollem Text laden — ändert den Gelesen-Status nicht (dafür `email mark-read`)
 
 - **Aufruf:** `immojump email get <id>`
 - **Endpoint:** `GET /api/email-messages/{id}`
