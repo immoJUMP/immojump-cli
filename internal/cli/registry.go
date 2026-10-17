@@ -542,6 +542,60 @@ var Registry = []Spec{
 		Args:    idArg("ID der Immobilie"),
 		Example: "immojump immobilien duplicate 5",
 	},
+	// Zusammenführen doppelter Objekte (immo-calc
+	// modules/routes/immobilie_merge_routes.py). Die Schemas lehnen
+	// unbekannte Schlüssel mit 400 ab; Stammdaten- und Block-Auswahl laufen
+	// über --set, weil die Schlüssel Feldnamen sind.
+	{
+		Resource: "immobilien", Verb: "merge-preview", Risk: RiskRead,
+		Summary: "Zusammenführen vorab prüfen: Konflikte, automatisch ergänzte Felder, Blöcke (ändert nichts)",
+		Method:  "POST", Path: "/api/v2/immobilien/merge/preview",
+		Flags: []Flag{
+			{Name: "ids", Kind: FlagList, Required: true,
+				Desc: "2 bis 10 Immobilien-IDs derselben Organisation, kommagetrennt oder wiederholt"},
+			{Name: "primary", Kind: FlagString,
+				Desc: "Immobilie, die bleibt (eine der --ids; Default: die älteste)"},
+		},
+		Body: []FlagBody{
+			{Flag: "ids", Key: "immobilie_ids"},
+			{Flag: "primary", Key: "primary_id"},
+		},
+		Example: "immojump immobilien merge-preview --ids <id-a>,<id-b>",
+	},
+	{
+		Resource: "immobilien", Verb: "merge", Risk: RiskDestructive,
+		Summary: "Dubletten in eine Immobilie zusammenführen; vorher merge-preview. " +
+			"Dubletten kommen in den Papierkorb, merge-restore macht es rückgängig",
+		Method: "POST", Path: "/api/v2/immobilien/merge",
+		Flags: []Flag{
+			{Name: "primary", Kind: FlagString, Required: true, Desc: "Immobilie, die bleibt"},
+			{Name: "duplicates", Kind: FlagList, Required: true,
+				Desc: "1 bis 9 Dubletten-IDs, kommagetrennt oder wiederholt"},
+			{Name: "include-documents", Kind: FlagBool,
+				Desc: "`--include-documents=false` lässt Dokumente und Bilder an den Dubletten (Default: ziehen um)"},
+		},
+		Body: []FlagBody{
+			{Flag: "primary", Key: "primary_id"},
+			{Flag: "duplicates", Key: "duplicate_ids"},
+			{Flag: "include-documents", Key: "include_documents"},
+		},
+		Example: "immojump immobilien merge --primary <id-a> --duplicates <id-b> " +
+			"--set field_choices.name=<id-b> --set block_choices.einheiten=<id-b>",
+	},
+	{
+		Resource: "immobilien", Verb: "merge-logs", Risk: RiskRead,
+		Summary: "Die letzten 50 Zusammenführungen der Organisation (id = log_id für merge-restore)",
+		Method:  "GET", Path: "/api/v2/immobilien/merge/logs",
+		Example: "immojump immobilien merge-logs --fields items.id,items.primary,items.restorable",
+	},
+	{
+		Resource: "immobilien", Verb: "merge-restore", Risk: RiskWrite,
+		Summary: "Zusammenführung rückgängig machen: Dubletten aus dem Papierkorb, Daten zurück " +
+			"(seitdem geänderte Werte bleiben, siehe kept_fields)",
+		Method: "POST", Path: "/api/v2/immobilien/merge/logs/{id}/restore",
+		Args:    idArg("log_id aus merge oder merge-logs"),
+		Example: "immojump immobilien merge-restore <log-id>",
+	},
 
 	{Resource: "intelligence", Verb: "get", Method: "GET", Path: "/api/immobilien/{id}/intelligence", Args: idArg("ID der Immobilie"), Risk: RiskRead, Summary: "Suchprofil, Unterlagen, Chancen, Risiken und nächste Schritte laden", Example: "immojump intelligence get 5"},
 	{Resource: "intelligence", Verb: "analyze", Method: "POST", Path: "/api/immobilien/{id}/intelligence/analyze", Args: idArg("ID der Immobilie"), Risk: RiskExternal, Summary: "Unterlagen vertieft bewerten; verbraucht eine KI-Analyse", Example: "immojump intelligence analyze 5"},

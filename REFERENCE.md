@@ -389,6 +389,10 @@ Immobilien
 | `immobilien delete` | destructive | `DELETE /api/v2/immobilien/{id}` |
 | `immobilien contacts` | read | `GET /api/v2/immobilien/{id}/contacts` |
 | `immobilien duplicate` | write | `POST /api/v2/immobilien/{id}/duplicate` |
+| `immobilien merge-preview` | read | `POST /api/v2/immobilien/merge/preview` |
+| `immobilien merge` | destructive | `POST /api/v2/immobilien/merge` |
+| `immobilien merge-logs` | read | `GET /api/v2/immobilien/merge/logs` |
+| `immobilien merge-restore` | write | `POST /api/v2/immobilien/merge/logs/{id}/restore` |
 
 #### immobilien list
 
@@ -507,6 +511,54 @@ Immobilie duplizieren
   - `id` — ID der Immobilie
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
 - **Beispiel:** `immojump immobilien duplicate 5`
+
+#### immobilien merge-preview
+
+Zusammenführen vorab prüfen: Konflikte, automatisch ergänzte Felder, Blöcke (ändert nichts)
+
+- **Aufruf:** `immojump immobilien merge-preview`
+- **Endpoint:** `POST /api/v2/immobilien/merge/preview`
+- **Risk:** `read`
+- **Flags:**
+  - `--ids <wert>` — (Pflicht) 2 bis 10 Immobilien-IDs derselben Organisation, kommagetrennt oder wiederholt
+  - `--primary <wert>` — Immobilie, die bleibt (eine der --ids; Default: die älteste)
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump immobilien merge-preview --ids <id-a>,<id-b>`
+
+#### immobilien merge
+
+Dubletten in eine Immobilie zusammenführen; vorher merge-preview. Dubletten kommen in den Papierkorb, merge-restore macht es rückgängig
+
+- **Aufruf:** `immojump immobilien merge`
+- **Endpoint:** `POST /api/v2/immobilien/merge`
+- **Risk:** `destructive`
+- **Flags:**
+  - `--primary <wert>` — (Pflicht) Immobilie, die bleibt
+  - `--duplicates <wert>` — (Pflicht) 1 bis 9 Dubletten-IDs, kommagetrennt oder wiederholt
+  - `--include-documents` — `--include-documents=false` lässt Dokumente und Bilder an den Dubletten (Default: ziehen um)
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump immobilien merge --primary <id-a> --duplicates <id-b> --set field_choices.name=<id-b> --set block_choices.einheiten=<id-b>`
+
+#### immobilien merge-logs
+
+Die letzten 50 Zusammenführungen der Organisation (id = log_id für merge-restore)
+
+- **Aufruf:** `immojump immobilien merge-logs`
+- **Endpoint:** `GET /api/v2/immobilien/merge/logs`
+- **Risk:** `read`
+- **Beispiel:** `immojump immobilien merge-logs --fields items.id,items.primary,items.restorable`
+
+#### immobilien merge-restore
+
+Zusammenführung rückgängig machen: Dubletten aus dem Papierkorb, Daten zurück (seitdem geänderte Werte bleiben, siehe kept_fields)
+
+- **Aufruf:** `immojump immobilien merge-restore <id>`
+- **Endpoint:** `POST /api/v2/immobilien/merge/logs/{id}/restore`
+- **Risk:** `write`
+- **Argumente:**
+  - `id` — log_id aus merge oder merge-logs
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump immobilien merge-restore <log-id>`
 
 ### units
 
