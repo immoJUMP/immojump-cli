@@ -63,6 +63,22 @@ func TestCommandRequestTable(t *testing.T) {
 		{name: "immobilien contacts", args: []string{"immobilien", "contacts", "5"}, method: "GET", path: "/api/v2/immobilien/5/contacts"},
 		{name: "immobilien duplicate", args: []string{"immobilien", "duplicate", "5"},
 			method: "POST", path: "/api/v2/immobilien/5/duplicate", body: `{}`},
+		// Zusammenführen (immo-calc#2108): Die Schemas lehnen unbekannte
+		// Schlüssel mit 400 ab — nur die dokumentierten gehen raus.
+		{name: "immobilien merge-preview", args: []string{"immobilien", "merge-preview", "--ids", "a1,b2"},
+			method: "POST", path: "/api/v2/immobilien/merge/preview", body: `{"immobilie_ids":["a1","b2"]}`},
+		{name: "immobilien merge-preview mit --primary", args: []string{"immobilien", "merge-preview", "--ids", "a1", "--ids", "b2", "--primary", "b2"},
+			method: "POST", path: "/api/v2/immobilien/merge/preview", body: `{"immobilie_ids":["a1","b2"],"primary_id":"b2"}`},
+		{name: "immobilien merge", args: []string{"immobilien", "merge", "--primary", "a1", "--duplicates", "b2,c3"},
+			method: "POST", path: "/api/v2/immobilien/merge", body: `{"primary_id":"a1","duplicate_ids":["b2","c3"]}`},
+		{name: "immobilien merge mit Auswahl", args: []string{"immobilien", "merge", "--primary", "a1", "--duplicates", "b2",
+			"--set", "field_choices.name=b2", "--set", "block_choices.einheiten=b2", "--include-documents=false"},
+			method: "POST", path: "/api/v2/immobilien/merge",
+			body: `{"block_choices":{"einheiten":"b2"},"duplicate_ids":["b2"],"field_choices":{"name":"b2"},"include_documents":false,"primary_id":"a1"}`},
+		{name: "immobilien merge-logs", args: []string{"immobilien", "merge-logs"},
+			method: "GET", path: "/api/v2/immobilien/merge/logs"},
+		{name: "immobilien merge-restore", args: []string{"immobilien", "merge-restore", "9f1c"},
+			method: "POST", path: "/api/v2/immobilien/merge/logs/9f1c/restore", body: `{}`},
 
 		{name: "intelligence get", args: []string{"intelligence", "get", "5"}, method: "GET", path: "/api/immobilien/5/intelligence"},
 		{name: "intelligence analyze", args: []string{"intelligence", "analyze", "5"}, method: "POST", path: "/api/immobilien/5/intelligence/analyze", body: `{}`},
