@@ -303,7 +303,7 @@ func TestRegistryCoversDesignScope(t *testing.T) {
 		"context":    {"list", "current", "use", "delete"},
 		"contacts":   {"list", "get", "create", "update", "set-status", "delete", "activities", "immobilien"},
 		"immobilien": {"list", "search", "get", "create", "set-status", "patch", "delete", "contacts", "duplicate"},
-		"units":      {"list", "create", "update", "delete"},
+		"units":      {"list", "list-org", "create", "update", "delete"},
 		"activities": {"list", "get", "for-immobilie", "create", "update", "delete"},
 		"pipelines":  {"list", "create", "get", "update", "delete", "statuses", "add-status", "export", "import"},
 		"statuses":   {"list", "update", "delete", "swap", "aliases", "add-alias"},

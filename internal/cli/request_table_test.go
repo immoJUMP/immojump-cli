@@ -72,6 +72,21 @@ func TestCommandRequestTable(t *testing.T) {
 
 		// --- units --------------------------------------------------------
 		{name: "units list", args: []string{"units", "list", "5"}, method: "GET", path: "/api/units/immobilie/5/units"},
+		{name: "units list gefiltert und geblättert", args: []string{"units", "list", "5",
+			"--limit", "50", "--offset", "100", "--extern-id", "RH-01-WE-001", "--type", "wohnen", "--vacant"},
+			method: "GET", path: "/api/units/immobilie/5/units",
+			query: url.Values{"limit": {"50"}, "offset": {"100"}, "extern_id": {"RH-01-WE-001"},
+				"type": {"wohnen"}, "vacant": {"true"}}},
+		// --vacant=false sind die vermieteten Einheiten — nicht "Filter aus".
+		{name: "units list vermietet", args: []string{"units", "list", "5", "--vacant=false"},
+			method: "GET", path: "/api/units/immobilie/5/units", query: url.Values{"vacant": {"false"}}},
+		{name: "units list-org", args: []string{"units", "list-org"},
+			method: "GET", path: "/api/units/organisation/org-test/units"},
+		{name: "units list-org gefiltert", args: []string{"units", "list-org",
+			"--immobilie-id", "5", "--type", "gewerbe", "--vacant", "--extern-id", "RH-02", "--limit", "10", "--offset", "20"},
+			method: "GET", path: "/api/units/organisation/org-test/units",
+			query: url.Values{"immobilie_id": {"5"}, "type": {"gewerbe"}, "vacant": {"true"},
+				"extern_id": {"RH-02"}, "limit": {"10"}, "offset": {"20"}}},
 		{name: "units create", args: []string{"units", "create", "5", "--set", "einheit=WE 1"},
 			method: "POST", path: "/api/units/unit/5", body: `{"einheit":"WE 1"}`},
 		{name: "units update", args: []string{"units", "update", "9", "--set", "ist_rent=780"},

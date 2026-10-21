@@ -650,6 +650,9 @@ func (r *runner) runHTTP(spec Spec, args []string, flags *flagValues) int {
 	if err != nil {
 		return r.fail(err)
 	}
+	if spec.Paged && flags.bool("all") {
+		return r.runAllPages(client, request, flags)
+	}
 	response, err := client.Do(*request)
 	if err != nil {
 		return r.fail(err)

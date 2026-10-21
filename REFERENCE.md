@@ -516,6 +516,7 @@ Einheiten einer Immobilie
 | Befehl | Risk | Endpoint |
 | --- | --- | --- |
 | `units list` | read | `GET /api/units/immobilie/{immobilie-id}/units` |
+| `units list-org` | read | `GET /api/units/organisation/{org}/units` |
 | `units create` | write | `POST /api/units/unit/{immobilie-id}` |
 | `units update` | write | `PUT /api/units/unit/{unit-id}` |
 | `units delete` | destructive | `DELETE /api/units/unit/{unit-id}` |
@@ -529,7 +530,31 @@ Einheiten einer Immobilie auflisten (neue Immobilien haben schon eine leere „E
 - **Risk:** `read`
 - **Argumente:**
   - `immobilie-id` — ID der Immobilie
-- **Beispiel:** `immojump units list 5`
+- **Flags:**
+  - `--limit <wert>` — Einheiten je Seite (1–500); damit kommt der Umschlag {items, total, limit, offset} statt des Arrays
+  - `--offset <wert>` — ab dieser Position (0-basiert); mit --all der Startpunkt
+  - `--extern-id <wert>` — nur die Einheit mit dieser Nummer des Verkäufers
+  - `--type <wert>` — Einheitentyp: wohnen, gewerbe, stellplatz, garage oder sonstiges
+  - `--vacant` — nur Leerstand (Ist-Miete 0 oder leer); --vacant=false nur vermietete
+  - `--all` — alle Seiten holen (je 500, --limit ändert die Seitengröße) und als ein Array ausgeben
+- **Beispiel:** `immojump units list 5 --vacant --fields id,einheit,livingspace`
+
+#### units list-org
+
+Einheiten der ganzen Organisation auflisten, jede mit immobilie_name (immer als Umschlag {items, total, limit, offset})
+
+- **Aufruf:** `immojump units list-org`
+- **Endpoint:** `GET /api/units/organisation/{org}/units`
+- **Risk:** `read`
+- **Flags:**
+  - `--limit <wert>` — Einheiten je Seite (Default 100, höchstens 500)
+  - `--immobilie-id <wert>` — nur Einheiten dieser Immobilie
+  - `--offset <wert>` — ab dieser Position (0-basiert); mit --all der Startpunkt
+  - `--extern-id <wert>` — nur die Einheit mit dieser Nummer des Verkäufers
+  - `--type <wert>` — Einheitentyp: wohnen, gewerbe, stellplatz, garage oder sonstiges
+  - `--vacant` — nur Leerstand (Ist-Miete 0 oder leer); --vacant=false nur vermietete
+  - `--all` — alle Seiten holen (je 500, --limit ändert die Seitengröße) und als ein Array ausgeben
+- **Beispiel:** `immojump units list-org --vacant --all --fields immobilie_name,einheit,livingspace,soll_rent`
 
 #### units create
 

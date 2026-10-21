@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/immoJUMP/immojump-cli/internal/api"
@@ -205,9 +206,16 @@ func buildQuery(spec Spec, flags *flagValues) (url.Values, error) {
 		query.Add(key, value)
 	}
 	for _, mapping := range spec.Query {
-		if flags.has(mapping.Flag) {
-			query.Set(mapping.Key, flags.get(mapping.Flag))
+		if !flags.has(mapping.Flag) {
+			continue
 		}
+		value := flags.get(mapping.Flag)
+		if flag, ok := findFlag(spec, mapping.Flag); ok && flag.Kind == FlagBool {
+			// Ein Schalter ohne Wert heißt true; --vacant=false bleibt false —
+			// das ist ein eigener Filter, nicht „Filter aus".
+			value = strconv.FormatBool(flags.bool(mapping.Flag))
+		}
+		query.Set(mapping.Key, value)
 	}
 	if len(query) == 0 {
 		return nil, nil

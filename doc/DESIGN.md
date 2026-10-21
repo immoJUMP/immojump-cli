@@ -282,6 +282,18 @@ Der Timeout (`--timeout`, Default 60 s) hängt am API-Client und nicht am
 `http.Client`. So gilt er auch, wenn ein HTTP-Client injiziert wird (Tests,
 künftige Aufrufer) — sonst wäre `--timeout` eine Zusage mit Löchern.
 
+### Blättern: `--all` statt Schleife beim Agenten
+
+Blätterbare Routen (`Paged` in der Spec) liefern mit `limit`/`offset` den
+Umschlag `{items, total, limit, offset}`. `--all` holt alle Seiten (Seitengröße
+500, `--limit` ändert sie, `--offset` ist der Start) und gibt **ein** Array aus;
+`--fields` wirkt auf dessen Elemente. Antwortet die Route mit einem nackten
+Array (eine Instanz ohne Blättern), ist das bereits alles. Scheitert eine
+Seite, bleibt stdout leer — eine halbe Liste sähe aus wie die ganze.
+
+Boolesche Filter-Flags (`--vacant`) gehen als `true`/`false` in die Query:
+`--vacant=false` ist ein eigener Filter (vermietet), kein „Filter aus".
+
 ### Wiederholungen: nur, wo sie nichts verdoppeln
 
 Lesende Aufrufe (GET/HEAD, auch über `api GET …`) wiederholt der Client selbst
@@ -379,7 +391,8 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
   `context` list/use/current/delete
 - `contacts` list/get/create/update/set-status/delete/activities/immobilien
 - `immobilien` list/search/get/create/set-status/patch/delete/contacts/duplicate
-- `units` list/create/update/delete
+- `units` list/list-org/create/update/delete — die Listen mit Filtern
+  (`--type`, `--vacant`, `--extern-id`), `--limit`/`--offset` und `--all`
 - `activities` list/get/for-immobilie/create/update/delete
 - `pipelines` list/get/create/update/delete/statuses/add-status/export/import
 - `statuses` list/update/delete/swap/aliases/add-alias
