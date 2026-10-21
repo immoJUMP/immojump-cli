@@ -45,7 +45,8 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `--readonly` | Nur lesende Befehle zulassen |
 | `--allow <wert>` | Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW) |
 | `--idempotency-key <wert>` | Wird als Idempotency-Key-Header mitgeschickt |
-| `--timeout <wert>` | Timeout in Sekunden (Default 60) |
+| `--timeout <wert>` | Timeout je Request in Sekunden (Default 60) |
+| `--retries <wert>` | Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); gilt für lesende Aufrufe, nie für Schreibbefehle |
 | `--verbose` | Methode und aufgerufene URL vor dem Request auf stderr zeigen |
 | `--version` | Version ausgeben |
 | `--help` | Hilfe zur jeweiligen Ebene ausgeben |

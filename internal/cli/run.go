@@ -52,6 +52,9 @@ type Options struct {
 	Stderr io.Writer
 	Getenv func(string) string
 	HTTP   *http.Client
+	// Sleep wartet zwischen zwei Versuchen (Default time.Sleep). Tests
+	// injizieren hier eine Aufzeichnung statt echter Pausen.
+	Sleep func(time.Duration)
 }
 
 type runner struct {
@@ -60,6 +63,7 @@ type runner struct {
 	stderr io.Writer
 	getenv func(string) string
 	http   *http.Client
+	sleep  func(time.Duration)
 }
 
 // Run führt einen CLI-Aufruf aus und liefert den Exit-Code.
@@ -70,6 +74,7 @@ func Run(args []string, opts Options) int {
 		stderr: opts.Stderr,
 		getenv: opts.Getenv,
 		http:   opts.HTTP,
+		sleep:  opts.Sleep,
 	}
 	if r.stdin == nil {
 		r.stdin = strings.NewReader("")
@@ -82,6 +87,9 @@ func Run(args []string, opts Options) int {
 	}
 	if r.getenv == nil {
 		r.getenv = os.Getenv
+	}
+	if r.sleep == nil {
+		r.sleep = time.Sleep
 	}
 	return r.dispatch(args)
 }
@@ -531,14 +539,50 @@ func (r *runner) resolveConfig(flags *flagValues) (config.Resolved, error) {
 	return resolved, nil
 }
 
+// DefaultRetries ist die Zahl der Wiederholungen idempotenter Aufrufe —
+// zusammen mit dem ersten Versuch höchstens drei.
+const DefaultRetries = 2
+
+// parseRetries liest --retries: eine ganze Zahl ab 0.
+func parseRetries(flags *flagValues) (int, error) {
+	raw := strings.TrimSpace(flags.get("retries"))
+	if !flags.has("retries") {
+		return DefaultRetries, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, usageErr("--retries erwartet eine ganze Zahl ab 0, bekommen: %q", raw)
+	}
+	return n, nil
+}
+
+// parseTimeout liest --timeout; fallback gilt, wenn das Flag fehlt.
+func parseTimeout(flags *flagValues, fallback time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(flags.get("timeout"))
+	if raw == "" {
+		return fallback, nil
+	}
+	seconds, err := strconv.ParseFloat(raw, 64)
+	if err != nil || seconds <= 0 {
+		return 0, usageErr("--timeout erwartet Sekunden als positive Zahl, bekommen: %q", raw)
+	}
+	return time.Duration(seconds * float64(time.Second)), nil
+}
+
 func (r *runner) newClient(resolved config.Resolved, flags *flagValues) (*api.Client, error) {
-	timeout := api.DefaultTimeout
-	if raw := strings.TrimSpace(flags.get("timeout")); raw != "" {
-		seconds, err := strconv.ParseFloat(raw, 64)
-		if err != nil || seconds <= 0 {
-			return nil, usageErr("--timeout erwartet Sekunden als positive Zahl, bekommen: %q", raw)
-		}
-		timeout = time.Duration(seconds * float64(time.Second))
+	return r.newClientWithTimeout(resolved, flags, api.DefaultTimeout)
+}
+
+// newClientWithTimeout baut den Client mit einem eigenen Default-Timeout —
+// Uploads mit OCR brauchen länger als 60 s. Ein gesetztes --timeout gewinnt.
+func (r *runner) newClientWithTimeout(resolved config.Resolved, flags *flagValues, fallback time.Duration) (*api.Client, error) {
+	timeout, err := parseTimeout(flags, fallback)
+	if err != nil {
+		return nil, err
+	}
+	retries, err := parseRetries(flags)
+	if err != nil {
+		return nil, err
 	}
 	httpClient := r.http
 	if httpClient == nil {
@@ -552,6 +596,20 @@ func (r *runner) newClient(resolved config.Resolved, flags *flagValues) (*api.Cl
 		// Auch ein injizierter Client muss den Timeout einhalten.
 		Timeout: timeout,
 		Env:     r.getenv,
+		Retries: retries,
+		Sleep:   r.sleep,
+		OnRetry: func(attempt, attempts int, wait time.Duration, err *api.Error) {
+			details := map[string]any{
+				"attempt":      attempt,
+				"attempts":     attempts,
+				"wait_seconds": wait.Seconds(),
+			}
+			if err.Status != 0 {
+				details["http_status"] = err.Status
+			}
+			_ = output.WriteWarning(r.stderr, fmt.Sprintf(
+				"%s — neuer Versuch %d von %d in %s", err.Message, attempt, attempts, wait), details)
+		},
 	}
 	if flags.bool("verbose") {
 		// Nur Methode und URL: Das Token steht im Header und hat auf stderr

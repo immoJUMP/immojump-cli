@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // recorded hält den letzten Request, den das CLI abgesetzt hat.
@@ -26,6 +28,13 @@ type recorded struct {
 	Multipart   *multipart.Form
 }
 
+// reply ist eine vorbereitete Antwort für handle.
+type reply struct {
+	status int
+	body   string
+	header http.Header
+}
+
 // harness startet einen httptest-Server und ruft Run mit einer vollständig
 // injizierten Umgebung auf — keine echten Env-Variablen, keine echte Config.
 type harness struct {
@@ -37,6 +46,13 @@ type harness struct {
 	respCT  string
 	env     map[string]string
 	stdin   string
+	// handle beantwortet einen Request individuell (Blättern, Stapel,
+	// Wiederholungen). Ohne handle gilt status/respond für jeden Request.
+	handle func(rec *recorded) reply
+	// requests sind alle Requests in Reihenfolge, sleeps alle Pausen.
+	requests []*recorded
+	sleeps   []time.Duration
+	mu       sync.Mutex
 }
 
 func newHarness(t *testing.T) *harness {
@@ -59,10 +75,28 @@ func newHarness(t *testing.T) *harness {
 			raw, _ := io.ReadAll(r.Body)
 			rec.Body = string(raw)
 		}
+		h.mu.Lock()
 		h.last = rec
-		w.Header().Set("Content-Type", h.respCT)
-		w.WriteHeader(h.status)
-		_, _ = w.Write([]byte(h.respond))
+		h.requests = append(h.requests, rec)
+		h.mu.Unlock()
+		status, body := h.status, h.respond
+		if h.handle != nil {
+			out := h.handle(rec)
+			for key, values := range out.header {
+				for _, v := range values {
+					w.Header().Add(key, v)
+				}
+			}
+			status, body = out.status, out.body
+			if status == 0 {
+				status = 200
+			}
+		}
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", h.respCT)
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(h.server.Close)
 
@@ -84,6 +118,7 @@ func (h *harness) run(args ...string) (int, string, string) {
 		Stdout: stdout,
 		Stderr: stderr,
 		Getenv: func(key string) string { return h.env[key] },
+		Sleep:  func(d time.Duration) { h.sleeps = append(h.sleeps, d) },
 	})
 	return code, stdout.String(), stderr.String()
 }

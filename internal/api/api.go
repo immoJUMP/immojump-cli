@@ -13,6 +13,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,12 +48,18 @@ type Request struct {
 	ContentType    string
 	IdempotencyKey string
 	Multipart      *Multipart
+	// Idempotent erlaubt Wiederholungen auch für schreibende Methoden. Nur
+	// setzen, wenn ein doppelt angekommener Aufruf nichts doppelt anlegt
+	// (units import gleicht über extern_id/id ab). GET und HEAD gelten immer
+	// als idempotent.
+	Idempotent bool
 }
 
 // Response ist die rohe Antwort — die Interpretation macht internal/output.
 type Response struct {
 	Status      int
 	ContentType string
+	Header      http.Header
 	Body        []byte
 }
 
@@ -73,7 +80,23 @@ type Client struct {
 	// falscher Pfad oder Route fehlt auf dieser Instanz? Der Token steht im
 	// Header und taucht hier nie auf.
 	Trace func(method, url string)
+	// Retries ist die Zahl der Wiederholungen nach dem ersten Versuch — nur
+	// für idempotente Aufrufe (siehe Request.Idempotent) und nur bei 429,
+	// 502, 503, 504 oder Netzwerkfehlern. 0 heißt: genau ein Versuch.
+	Retries int
+	// Sleep wartet zwischen zwei Versuchen (injizierbar für Tests).
+	Sleep func(time.Duration)
+	// OnRetry meldet jede Wiederholung, bevor gewartet wird: attempt ist der
+	// kommende Versuch (ab 2), attempts die Höchstzahl.
+	OnRetry func(attempt, attempts int, wait time.Duration, err *Error)
 }
+
+// MaxRetryWait deckelt die Pause zwischen zwei Versuchen — auch ein
+// Retry-After von einer Stunde blockiert einen Agenten nicht länger.
+const MaxRetryWait = 30 * time.Second
+
+// retryBase ist die erste Pause; jede weitere verdoppelt sie.
+const retryBase = time.Second
 
 // Error ist ein Backend- oder Transportfehler mit stabilem Exit-Code.
 type Error struct {
@@ -89,6 +112,25 @@ type Error struct {
 	// Exit überschreibt die Ableitung aus Status (z. B. lokale Fehler).
 	Exit int
 	Err  error
+	// RetryAfter ist der Retry-After-Header der Antwort (0 ohne Header).
+	RetryAfter time.Duration
+}
+
+// Retryable sagt, ob ein erneuter Versuch sinnvoll ist: Rate Limit,
+// Gateway-/Verfügbarkeitsfehler und Netzwerkabbrüche. 500 gehört bewusst
+// nicht dazu — ein Fehler im Backend wird durch Wiederholen nicht besser.
+func (e *Error) Retryable() bool {
+	if e.Exit != 0 {
+		return false
+	}
+	switch e.Status {
+	case 0:
+		return e.Code == "NETWORK"
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -150,6 +192,11 @@ func (c *Client) timeout() time.Duration {
 }
 
 // Do führt den Aufruf aus. Antworten ab Status 400 werden zu *Error.
+//
+// Idempotente Aufrufe (GET/HEAD oder Request.Idempotent) wiederholt Do bis zu
+// c.Retries-mal bei 429/502/503/504 und Netzwerkfehlern — mit exponentiellem
+// Backoff ab 1 s, Retry-After hat Vorrang, gedeckelt auf MaxRetryWait.
+// Schreibende Aufrufe ohne Idempotent laufen genau einmal.
 func (c *Client) Do(req Request) (*Response, error) {
 	if err := config.CheckBaseURL(c.BaseURL, c.Env); err != nil {
 		return nil, &Error{Message: err.Error(), Code: "BASE_URL_NOT_ALLOWED", Exit: 3}
@@ -160,26 +207,95 @@ func (c *Client) Do(req Request) (*Response, error) {
 		return nil, &Error{Message: err.Error(), Code: "BAD_REQUEST_URL", Exit: 2}
 	}
 
-	body, contentType, err := buildBody(req)
-	if err != nil {
-		return nil, &Error{Message: err.Error(), Code: "BAD_REQUEST_BODY", Exit: 2}
-	}
-
 	method := strings.ToUpper(strings.TrimSpace(req.Method))
 	if method == "" {
 		method = http.MethodGet
 	}
+
+	attempts := 1
+	if c.Retries > 0 && (req.Idempotent || method == http.MethodGet || method == http.MethodHead) {
+		attempts += c.Retries
+	}
+	for attempt := 1; ; attempt++ {
+		res, err := c.doOnce(req, method, target)
+		var apiErr *Error
+		if err == nil || attempt >= attempts || !errors.As(err, &apiErr) || !apiErr.Retryable() {
+			return res, err
+		}
+		wait := retryWait(attempt, apiErr.RetryAfter)
+		if c.OnRetry != nil {
+			c.OnRetry(attempt+1, attempts, wait, apiErr)
+		}
+		c.sleep(wait)
+	}
+}
+
+func (c *Client) sleep(d time.Duration) {
+	if c.Sleep != nil {
+		c.Sleep(d)
+		return
+	}
+	time.Sleep(d)
+}
+
+// retryWait ist die Pause vor dem nächsten Versuch: Retry-After, sonst
+// 1 s, 2 s, 4 s … — beides gedeckelt.
+func retryWait(attempt int, retryAfter time.Duration) time.Duration {
+	wait := retryAfter
+	if wait <= 0 {
+		wait = retryBase << (attempt - 1)
+	}
+	if wait > MaxRetryWait || wait < 0 {
+		wait = MaxRetryWait
+	}
+	return wait
+}
+
+// parseRetryAfter liest Sekunden oder ein HTTP-Datum.
+func parseRetryAfter(raw string, now time.Time) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil {
+		if seconds < 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(raw); err == nil {
+		if d := when.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+// doOnce ist genau ein HTTP-Versuch. Der Body wird je Versuch neu gebaut —
+// ein gelesener Reader ließe sich nicht ein zweites Mal senden.
+func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
+	body, contentType, length, err := buildBody(req)
+	if err != nil {
+		return nil, &Error{Message: err.Error(), Code: "BAD_REQUEST_BODY", Exit: 2}
+	}
+	if closer, ok := body.(io.Closer); ok {
+		defer func() { _ = closer.Close() }()
+	}
+
 	if c.Trace != nil {
 		c.Trace(method, target)
 	}
 	// Der Timeout hängt am Context, damit er auch dann greift, wenn der
 	// HTTP-Client von außen kommt und keinen eigenen mitbringt. Der Body ist
-	// vollständig gelesen, bevor Do zurückkehrt — cancel darf hier stehen.
+	// vollständig gelesen, bevor doOnce zurückkehrt — cancel darf hier stehen.
 	ctx, cancel := context.WithTimeout(context.Background(), c.timeout())
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
 		return nil, &Error{Message: fmt.Sprintf("Request nicht baubar: %v", err), Exit: 2}
+	}
+	if length >= 0 && body != nil {
+		httpReq.ContentLength = length
 	}
 	httpReq.Header.Set("Accept", "application/json")
 	httpReq.Header.Set("User-Agent", UserAgent)
@@ -198,6 +314,12 @@ func (c *Client) Do(req Request) (*Response, error) {
 
 	httpRes, err := c.httpClient().Do(httpReq)
 	if err != nil {
+		var localErr *Error
+		if errors.As(err, &localErr) {
+			// Ein Fehler beim Lesen einer lokalen Datei für den Upload ist
+			// kein Netzwerkproblem — ein Retry änderte daran nichts.
+			return nil, localErr
+		}
 		return nil, &Error{
 			Status:  0,
 			Message: fmt.Sprintf("Verbindung zu %s fehlgeschlagen: %v", c.BaseURL, err),
@@ -215,10 +337,13 @@ func (c *Client) Do(req Request) (*Response, error) {
 	res := &Response{
 		Status:      httpRes.StatusCode,
 		ContentType: httpRes.Header.Get("Content-Type"),
+		Header:      httpRes.Header,
 		Body:        raw,
 	}
 	if httpRes.StatusCode >= 400 {
-		return res, backendError(res)
+		apiErr := backendError(res)
+		apiErr.RetryAfter = parseRetryAfter(httpRes.Header.Get("Retry-After"), time.Now())
+		return res, apiErr
 	}
 	return res, nil
 }
@@ -245,37 +370,37 @@ func (c *Client) buildURL(req Request) (string, error) {
 	return parsed.String(), nil
 }
 
-func buildBody(req Request) (io.Reader, string, error) {
+func buildBody(req Request) (io.Reader, string, int64, error) {
 	if req.Multipart != nil {
 		buf := &bytes.Buffer{}
 		writer := multipart.NewWriter(buf)
 		for _, file := range req.Multipart.Files {
 			part, err := writer.CreateFormFile(file.Field, file.Filename)
 			if err != nil {
-				return nil, "", fmt.Errorf("Multipart-Feld %s nicht baubar: %v", file.Field, err)
+				return nil, "", 0, fmt.Errorf("Multipart-Feld %s nicht baubar: %v", file.Field, err)
 			}
 			if _, err := part.Write(file.Content); err != nil {
-				return nil, "", fmt.Errorf("Datei %s nicht schreibbar: %v", file.Filename, err)
+				return nil, "", 0, fmt.Errorf("Datei %s nicht schreibbar: %v", file.Filename, err)
 			}
 		}
 		for key, value := range req.Multipart.Fields {
 			if err := writer.WriteField(key, value); err != nil {
-				return nil, "", fmt.Errorf("Formfeld %s nicht schreibbar: %v", key, err)
+				return nil, "", 0, fmt.Errorf("Formfeld %s nicht schreibbar: %v", key, err)
 			}
 		}
 		if err := writer.Close(); err != nil {
-			return nil, "", fmt.Errorf("Multipart nicht abschließbar: %v", err)
+			return nil, "", 0, fmt.Errorf("Multipart nicht abschließbar: %v", err)
 		}
-		return buf, writer.FormDataContentType(), nil
+		return buf, writer.FormDataContentType(), int64(buf.Len()), nil
 	}
 	if len(req.Body) == 0 {
-		return nil, "", nil
+		return nil, "", -1, nil
 	}
 	contentType := req.ContentType
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	return bytes.NewReader(req.Body), contentType, nil
+	return bytes.NewReader(req.Body), contentType, int64(len(req.Body)), nil
 }
 
 // maxRawSnippet begrenzt den Rohtext einer Nicht-JSON-Antwort.

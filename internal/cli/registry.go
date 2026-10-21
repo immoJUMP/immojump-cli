@@ -318,7 +318,9 @@ var GlobalFlags = []Flag{
 	{Name: "readonly", Kind: FlagBool, Desc: "Nur lesende Befehle zulassen"},
 	{Name: "allow", Kind: FlagString, Desc: "Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW)"},
 	{Name: "idempotency-key", Kind: FlagString, Desc: "Wird als Idempotency-Key-Header mitgeschickt"},
-	{Name: "timeout", Kind: FlagString, Desc: "Timeout in Sekunden (Default 60)"},
+	{Name: "timeout", Kind: FlagString, Desc: "Timeout je Request in Sekunden (Default 60)"},
+	{Name: "retries", Kind: FlagString, Desc: "Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); " +
+		"gilt für lesende Aufrufe, nie für Schreibbefehle"},
 	{Name: "verbose", Kind: FlagBool, Desc: "Methode und aufgerufene URL vor dem Request auf stderr zeigen"},
 	{Name: "version", Kind: FlagBool, Desc: "Version ausgeben"},
 	{Name: "help", Kind: FlagBool, Desc: "Hilfe zur jeweiligen Ebene ausgeben"},
