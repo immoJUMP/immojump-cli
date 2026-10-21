@@ -55,6 +55,7 @@ const (
 	SpecialTagsSet         = "tags-set"
 	SpecialDocumentsUpload = "documents-upload"
 	SpecialPipelineImport  = "pipelines-import"
+	SpecialUnitsImport     = "units-import"
 	SpecialUnitsFieldsGet  = "units-fields-get"
 	SpecialUnitsFieldsSet  = "units-fields-set"
 )
@@ -137,6 +138,9 @@ type Spec struct {
 	Local bool
 	// Raw: Die Antwort ist möglicherweise kein JSON (z. B. YAML-Export).
 	Raw bool
+	// Notes sind Hinweise, die über die Summary hinausgehen (Wiederholbarkeit,
+	// Teilerfolge, Eingabeformat) — in Hilfe, Referenz und Schema.
+	Notes []string
 	// Calls nennt die weiteren Requests eines Befehls, der mehr als einen
 	// Aufruf macht (Auflösen, Blättern, Nachschlagen) — für Hilfe, Referenz
 	// und Schema. Method/Path bleiben der Haupt-Request; nur der zählt für
@@ -219,6 +223,7 @@ var specialBodyHints = map[string]string{
 	SpecialDocumentsUpload: "Multipart-Upload im Feld `files[]`, dazu `organisation_id` aus der Konfiguration.",
 	SpecialPipelineImport:  "YAML aus `--file` oder stdin (Content-Type `application/x-yaml`), Organisation als Query-Parameter.",
 	SpecialTagsSet:         "rohes JSON-Array der Tag-IDs, gebaut aus `--tag-ids`.",
+	SpecialUnitsImport:     "`{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).",
 	SpecialUnitsFieldsSet: "`{model: \"unit\", items: [{target_id, values}]}` in Stapeln zu 500, gebaut aus `--file` " +
 		"(NDJSON oder JSON-Array, je Datensatz `extern_id` oder `id` plus `values`).",
 }
@@ -624,6 +629,31 @@ var Registry = []Spec{
 		}, unitListFlags...),
 		Query:   append([]FlagQuery{{Flag: "immobilie-id", Key: "immobilie_id"}}, unitListQuery...),
 		Example: "immojump units list-org --vacant --all --fields immobilie_name,einheit,livingspace,soll_rent",
+	},
+	{
+		Resource: "units", Verb: "import", Risk: RiskWrite, Special: SpecialUnitsImport,
+		Summary: "Einheiten aus einer Mieterliste anlegen oder aktualisieren (in Stapeln, Abgleich über id bzw. extern_id)",
+		Method:  "POST", Path: "/api/units/immobilie/{immobilie-id}/units/bulk",
+		Args: []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
+		Flags: []Flag{
+			{Name: "file", Kind: FlagString, Required: true,
+				Desc: "Mieterliste: NDJSON (eine Einheit je Zeile), JSON-Array oder CSV; - liest stdin"},
+			{Name: "format", Kind: FlagString, Desc: "ndjson, json oder csv (ohne Angabe: aus der Endung, bei stdin aus dem ersten Zeichen)"},
+			{Name: "batch-size", Kind: FlagNumber, Desc: "Einheiten je Stapel (1–500, Default 500)"},
+			{Name: "dry-run", Kind: FlagBool, Desc: "nur prüfen und zählen, nichts speichern"},
+			{Name: "decimal-comma", Kind: FlagBool, Desc: "CSV: Zahlen mit Dezimalkomma (62,5 und 1.250,50)"},
+			{Name: "delimiter", Kind: FlagString, Desc: "CSV-Trennzeichen ; oder , (ohne Angabe: das häufigere in der Kopfzeile)"},
+		},
+		Notes: []string{
+			"Felder je Einheit wie im Backend: extern_id, einheit, type, livingspace, rooms, ist_rent, soll_rent, soll_rent2, note, order, lease_start_date, last_rent_increase_date, id.",
+			"Erneut ausführen ist sicher: Einheiten mit id oder extern_id werden wiedergefunden und nur geändert, was mitkommt. Zeilen ohne beides legt jeder Lauf neu an.",
+			"Jeder Stapel ist für sich alles oder nichts. Scheitert Stapel k, sind die Stapel davor gespeichert (committed_batches in der Fehlerzeile); errors[].index zeigt in die Datei, line auf die Zeile. Nach der Korrektur einfach die ganze Datei erneut importieren.",
+			"Eine extern_id, die in der Datei doppelt steht, bricht vor dem ersten Stapel ab (Exit 11).",
+			"CSV: Kopfzeile aus den Feldnamen; leere Zelle = Feld weglassen; livingspace, rooms, ist_rent, soll_rent, soll_rent2 und order werden Zahlen, alles andere bleibt Text.",
+			"--dry-run prüft jeden Stapel einzeln: Anlagen aus Stapel 1 sieht Stapel 2 dabei nicht.",
+			"Stapel werden bei 429/502/503/504 und Netzwerkfehlern wiederholt (--retries), aber nur, wenn jede Zeile id oder extern_id trägt.",
+		},
+		Example: "immojump units import 5 --file mieter.ndjson --dry-run",
 	},
 	{
 		Resource: "units", Verb: "fields-get", Risk: RiskRead, Special: SpecialUnitsFieldsGet,

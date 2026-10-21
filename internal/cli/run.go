@@ -642,6 +642,8 @@ func (r *runner) runHTTP(spec Spec, args []string, flags *flagValues) int {
 	}
 
 	switch spec.Special {
+	case SpecialUnitsImport:
+		return r.runUnitsImport(args[0], flags, resolved)
 	case SpecialUnitsFieldsGet:
 		return r.runUnitsFieldsGet(args[0], flags, resolved)
 	case SpecialUnitsFieldsSet:

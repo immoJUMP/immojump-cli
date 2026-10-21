@@ -79,7 +79,9 @@ type schemaCommand struct {
 	Path     string `json:"path,omitempty"`
 	Endpoint string `json:"endpoint"`
 	// Calls sind die weiteren Requests eines Befehls mit mehreren Aufrufen.
-	Calls []string     `json:"calls,omitempty"`
+	Calls []string `json:"calls,omitempty"`
+	// Notes sind Hinweise über die Summary hinaus.
+	Notes []string     `json:"notes,omitempty"`
 	Local bool         `json:"local,omitempty"`
 	Raw   bool         `json:"raw,omitempty"`
 	Args  []schemaArg  `json:"args"`
@@ -116,6 +118,7 @@ func toSchemaCommand(spec Spec) schemaCommand {
 		Path:       spec.Path,
 		Endpoint:   spec.Endpoint(),
 		Calls:      spec.Calls,
+		Notes:      spec.Notes,
 		Local:      spec.Local,
 		Raw:        spec.Raw,
 		Args:       args,
@@ -330,6 +333,12 @@ func writeCommandSection(out *strings.Builder, spec Spec) {
 	}
 	if hint := bodyHint(spec); hint != "" {
 		fmt.Fprintf(out, "- **Body:** %s\n", hint)
+	}
+	if len(spec.Notes) > 0 {
+		out.WriteString("- **Details:**\n")
+		for _, note := range spec.Notes {
+			fmt.Fprintf(out, "  - %s\n", note)
+		}
 	}
 	if spec.Raw {
 		out.WriteString("- **Antwort:** möglicherweise kein JSON — wird roh nach stdout geschrieben.\n")
