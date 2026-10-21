@@ -282,6 +282,27 @@ Der Timeout (`--timeout`, Default 60 s) hängt am API-Client und nicht am
 `http.Client`. So gilt er auch, wenn ein HTTP-Client injiziert wird (Tests,
 künftige Aufrufer) — sonst wäre `--timeout` eine Zusage mit Löchern.
 
+### Wiederholungen: nur, wo sie nichts verdoppeln
+
+Lesende Aufrufe (GET/HEAD, auch über `api GET …`) wiederholt der Client selbst
+bei **429, 502, 503, 504 und Netzwerkfehlern** — höchstens zweimal, also drei
+Versuche. Die Pause ist exponentiell (1 s, 2 s, 4 s …); ein `Retry-After`
+(Sekunden oder HTTP-Datum) hat Vorrang. Beides ist auf **30 s** gedeckelt,
+damit ein Retry-After von einer Stunde keinen Agenten blockiert. `--retries N`
+setzt die Zahl der Wiederholungen, `--retries 0` schaltet sie ab.
+
+500 wird bewusst nicht wiederholt: ein Fehler im Backend wird durch
+Wiederholen nicht besser. Schreibende Aufrufe laufen **genau einmal** — auch
+mit `--retries`. Ein POST, dessen Antwort unterwegs verloren ging, kann
+angekommen sein; ein zweiter Versuch legte doppelt an. Ausnahme sind Befehle,
+deren Request ausdrücklich als idempotent markiert ist (`api.Request.Idempotent`):
+nur dort, wo das Backend einen zweiten Aufruf über einen Schlüssel als
+denselben erkennt.
+
+Jede Wiederholung meldet sich mit einer `{"warning":true,…}`-Zeile auf stderr
+(`attempt`, `attempts`, `wait_seconds`, `http_status`). Scheitert auch der
+letzte Versuch, gilt dessen Fehler samt Exit-Code.
+
 ### Die Fehlerzeile trägt das komplette Payload
 
 `api_error(message, status_code, *, code=None, **extra)` erlaubt **beliebige**
