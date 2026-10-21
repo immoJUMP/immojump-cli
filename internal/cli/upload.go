@@ -370,7 +370,15 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		return r.fail(err)
 	}
 
-	fields := map[string]string{"organisation_id": resolved.Org, "report": "true"}
+	// Genau eine ausdrücklich genannte Datei ohne --report ist der bisherige
+	// Aufruf: ein Request, Ausgabe das Array des Backends unverändert —
+	// bestehende Agenten lesen dort --fields id bzw. .[0].id.
+	legacy := len(args) == 1 && len(files) == 1 && files[0].path == args[0] && !flags.bool("report")
+
+	fields := map[string]string{"organisation_id": resolved.Org}
+	if !legacy {
+		fields["report"] = "true"
+	}
 	if immobilie != "" {
 		fields["immobilien_id"] = immobilie
 	}
@@ -391,6 +399,24 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 	query, err := buildQuery(Spec{}, flags)
 	if err != nil {
 		return r.fail(err)
+	}
+
+	if legacy {
+		file := files[0]
+		res, err := client.Do(api.Request{
+			Method: "POST", Path: "/api/documents/documents/bulk-upload", Query: query,
+			IdempotencyKey: flags.get("idempotency-key"),
+			Multipart: &api.Multipart{Fields: fields, Files: []api.FilePart{{
+				Field: "files[]", Filename: filepath.Base(file.path), Path: file.path, ContentType: contentTypeFor(file.path),
+			}}},
+		})
+		if err != nil {
+			return r.fail(err)
+		}
+		if err := r.render(res.Body, res.ContentType, flags); err != nil {
+			return r.fail(err)
+		}
+		return 0
 	}
 
 	report := uploadReport{Uploaded: []uploadedDoc{}, Duplicates: []map[string]any{}, Failed: []failedFile{}, Empty: []string{}}

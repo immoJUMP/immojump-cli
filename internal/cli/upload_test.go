@@ -502,3 +502,55 @@ func TestBatchFilesSeparatesNormalizedNameCollisions(t *testing.T) {
 		t.Errorf("zwei Stapel erwartet (je eine Kollision je Paar), got %d", n)
 	}
 }
+
+// TestUploadSingleFileKeepsLegacyOutput: Bestehende Agenten (Skripte mit
+// --fields id oder .[0].id) laden einzelne Dateien — für sie bleibt die
+// Ausgabe das Array des Backends, unverändert.
+func TestUploadSingleFileKeepsLegacyOutput(t *testing.T) {
+	root := dataroom(t, map[string]string{"expose.pdf": "%PDF"})
+	h := newHarness(t)
+	h.respond = `[{"id":42,"dateiname":"expose.pdf","unit_id":"u-1"}]`
+	code, stdout, stderr := h.run("documents", "upload", filepath.Join(root, "expose.pdf"),
+		"--immobilie-id", "5", "--unit-id", "u-1", "--category", "expose", "--fields", "id")
+	if code != 0 || stderr != "" {
+		t.Fatalf("Exit 0 und leeres stderr erwartet, got %d (%s)", code, stderr)
+	}
+	if strings.TrimSpace(stdout) != `[{"id":42}]` {
+		t.Errorf("Array des Backends erwartet, got %q", stdout)
+	}
+	form := h.last.Multipart
+	if _, ok := form.Value["report"]; ok {
+		t.Error("ohne --report kein report=true")
+	}
+	if form.Value["unit_id"][0] != "u-1" || form.Value["category"][0] != "expose" {
+		t.Errorf("--unit-id und --category auch für die einzelne Datei erwartet, got %v", form.Value)
+	}
+	if h.last.ContentLength <= 0 {
+		t.Error("auch die einzelne Datei wird mit bekannter Länge gestreamt")
+	}
+}
+
+func TestUploadReportForReportFlagFoldersAndSeveralFiles(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B"})
+	for name, args := range map[string][]string{
+		"--report":        {filepath.Join(root, "a.pdf"), "--report"},
+		"Ordner":          {root},
+		"mehrere Dateien": {filepath.Join(root, "a.pdf"), filepath.Join(root, "b.pdf")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			b := &uploadBackend{}
+			h.handle = b.handle
+			code, stdout, stderr := h.run(append([]string{"documents", "upload"}, args...)...)
+			if code != 0 {
+				t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+			}
+			if got := h.last.Multipart.Value["report"]; len(got) != 1 || got[0] != "true" {
+				t.Errorf("report=true erwartet, got %v", got)
+			}
+			if out := decodeUpload(t, stdout); len(out.Uploaded) == 0 {
+				t.Errorf("Bericht erwartet, got %q", stdout)
+			}
+		})
+	}
+}

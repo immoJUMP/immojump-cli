@@ -475,7 +475,11 @@ Content-Length — die Länge stammt aus dem Fstat des schon geöffneten
 Deskriptors, und der muss dieselbe Datei sein wie das Lstat davor; ein
 zwischen Aufzählung und Senden untergeschobener Symlink fällt so auf,
 Symlinks werden nie hochgeladen; `report=true` und Bericht `{uploaded, duplicates, failed,
-empty}` mit lokalem Pfad je Datei — Exit 0 nur ohne `failed`), `pipelines import`
+empty}` mit lokalem Pfad je Datei — Exit 0 nur ohne `failed`; gleichnamige
+Dateien nie im selben Stapel, weil der Bericht nur Namen nennt. **Eine
+einzelne Datei ohne `--report`** bleibt beim bisherigen Vertrag: ein
+Request ohne `report=true`, Ausgabe das Array des Backends — bestehende
+Agenten lesen dort `--fields id`), `pipelines import`
 (`Content-Type: application/x-yaml` plus `?organisation_id=…`), `tags set`
 (Body ist ein rohes JSON-Array von Tag-IDs), `shares create` (items-Liste aus
 den Sugar-Flags).
