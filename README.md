@@ -455,7 +455,9 @@ immojump units fields-get "$ID" --fields extern_id,values.Marktmiete
 
 # 4. Datenraum hochladen: ein Ordner je Haus, Unterordner mit --recursive
 immojump documents upload datenraum/haus-01 --recursive --immobilie-id "$ID"
-#    Mietverträge direkt an ihre Einheit, wo bekannt (Einheit derselben Immobilie)
+#    Mietverträge direkt an ihre Einheit, wo bekannt (Einheit derselben Immobilie).
+#    Eine einzelne Datei antwortet wie bisher mit dem Array des Backends
+#    (--fields id), mit --report mit dem Bericht.
 UNIT=$(immojump units list "$ID" --extern-id RH-01-WE-001 --limit 1 --fields items.id | jq -r '.items[0].id')
 immojump documents upload datenraum/haus-01/mietvertraege/WE-001.pdf \
   --immobilie-id "$ID" --unit-id "$UNIT" --category mietvertrag
@@ -485,8 +487,13 @@ Was dabei zu wissen ist:
   und `errors[].index`/`line` zeigen in die Datei. Korrigieren, die ganze Datei
   erneut importieren. Eine `extern_id`, die in der Datei doppelt steht, bricht
   vor dem ersten Stapel ab.
-- **`documents upload`** berichtet je Datei:
+- **`documents upload`** mit Ordner, mehreren Dateien oder `--report` berichtet
+  je Datei:
   `{uploaded: [{id, dateiname, file}], duplicates, failed: [{file, message}], empty}`.
+  Eine einzelne Datei ohne `--report` bleibt beim bisherigen Vertrag: ein
+  Request, Ausgabe das Array des Backends (Skripte mit `--fields id` bzw.
+  `.[0].id` laufen weiter). Gleichnamige Dateien landen nie im selben Stapel,
+  Symlinks werden nie hochgeladen.
   Exit 0 nur ohne `failed`; sonst Exit 1, der Bericht steht trotzdem auf stdout.
   Uploads werden nie automatisch wiederholt — erneut ausführen ist sicher,
   Schon-Hochgeladenes landet unter `duplicates`.

@@ -1038,7 +1038,7 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "documents", Verb: "upload", Risk: RiskWrite, Special: SpecialDocumentsUpload,
-		Summary: "Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei",
+		Summary: "Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei (eine einzelne Datei: Array wie bisher)",
 		Method:  "POST", Path: "/api/documents/documents/bulk-upload",
 		Args: []Arg{{Name: "datei", Desc: "Datei oder Ordner, beliebig viele", Variadic: true}},
 		Flags: []Flag{
@@ -1047,11 +1047,13 @@ var Registry = []Spec{
 			{Name: "category", Kind: FlagString, Desc: documentCategoryDesc + " (ohne Angabe erkennt die Analyse die Art; gilt nicht für ZIP-Archive)"},
 			{Name: "allow-duplicate", Kind: FlagBool, Desc: "Upload auch bei erkanntem Duplikat erlauben"},
 			{Name: "recursive", Kind: FlagBool, Desc: "Ordner samt Unterordnern hochladen (ohne: nur die Dateien direkt im Ordner)"},
+			{Name: "report", Kind: FlagBool, Desc: "auch für eine einzelne Datei den Bericht ausgeben statt des Arrays des Backends"},
 			{Name: "batch-files", Kind: FlagNumber, Desc: "höchstens so viele Dateien je Request (Default 10)"},
 			{Name: "batch-mb", Kind: FlagNumber, Desc: "höchstens so viele MB je Request (Default 25; eine größere Datei geht allein)"},
 		},
 		Notes: []string{
-			"Ausgabe: {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.",
+			"Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code.",
+			"Ordner, mehrere Dateien oder --report: Ausgabe {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.",
 			"Exit 0 nur, wenn nichts fehlgeschlagen ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.",
 			"Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.",
 			"Symbolische Links werden nie hochgeladen (im Ordner übersprungen, ausdrücklich genannt Exit 2). Beim Senden wird jede Datei ohne Symlink-Folgen geprüft (Lstat, Fstat, gleiche Datei); scheitert das, steht sie unter failed und der Rest des Stapels geht raus.",

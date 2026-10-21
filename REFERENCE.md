@@ -1108,7 +1108,7 @@ Dokumente einer Immobilie auflisten (ohne extrahierter_text; den liefert nur das
 
 #### documents upload
 
-Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei
+Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei (eine einzelne Datei: Array wie bisher)
 
 - **Aufruf:** `immojump documents upload <datei>...`
 - **Endpoint:** `POST /api/documents/documents/bulk-upload`
@@ -1121,11 +1121,13 @@ Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei
   - `--category <wert>` — Dokumentart: expose, mieterliste, mietvertrag, energieausweis, grundbuch, grundriss, wohnflaechenberechnung, betriebskosten, teilungserklaerung, wirtschaftsplan, hausgeldabrechnung, weg_protokoll, baulasten, altlasten, bauunterlagen, versicherung, kaufvertrag, rechnung, finanzierung oder sonstiges (ohne Angabe erkennt die Analyse die Art; gilt nicht für ZIP-Archive)
   - `--allow-duplicate` — Upload auch bei erkanntem Duplikat erlauben
   - `--recursive` — Ordner samt Unterordnern hochladen (ohne: nur die Dateien direkt im Ordner)
+  - `--report` — auch für eine einzelne Datei den Bericht ausgeben statt des Arrays des Backends
   - `--batch-files <wert>` — höchstens so viele Dateien je Request (Default 10)
   - `--batch-mb <wert>` — höchstens so viele MB je Request (Default 25; eine größere Datei geht allein)
 - **Body:** Multipart-Upload im Feld `files[]` (gestreamt, je Datei mit Content-Type aus der Endung), dazu `organisation_id` aus der Konfiguration und `report=true`.
 - **Details:**
-  - Ausgabe: {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.
+  - Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code.
+  - Ordner, mehrere Dateien oder --report: Ausgabe {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.
   - Exit 0 nur, wenn nichts fehlgeschlagen ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.
   - Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.
   - Symbolische Links werden nie hochgeladen (im Ordner übersprungen, ausdrücklich genannt Exit 2). Beim Senden wird jede Datei ohne Symlink-Folgen geprüft (Lstat, Fstat, gleiche Datei); scheitert das, steht sie unter failed und der Rest des Stapels geht raus.
