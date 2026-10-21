@@ -492,8 +492,9 @@ Was dabei zu wissen ist:
   `{uploaded: [{id, dateiname, file}], duplicates, failed: [{file, message}], empty}`.
   Eine einzelne Datei ohne `--report` bleibt beim bisherigen Vertrag: ein
   Request, Ausgabe das Array des Backends (Skripte mit `--fields id` bzw.
-  `.[0].id` laufen weiter). Gleichnamige Dateien landen nie im selben Stapel,
-  Symlinks werden nie hochgeladen.
+  `.[0].id` laufen weiter). `file` kommt aus dem `sourceFile` des Backends;
+  bei einem ZIP zeigen alle Mitglieder auf das Archiv. Symlinks werden nie
+  hochgeladen, und nichts außerhalb des genannten Ordners.
   Exit 0 nur ohne `failed`; sonst Exit 1, der Bericht steht trotzdem auf stdout.
   Uploads werden nie automatisch wiederholt — erneut ausführen ist sicher,
   Schon-Hochgeladenes landet unter `duplicates`.

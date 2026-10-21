@@ -478,8 +478,13 @@ Geöffnet wird über `os.Root` (je Ordner-Argument, bei einer einzelnen Datei
 ihr Ordner): Auch ein Unterordner, der zwischen zwei Stapeln durch einen
 Symlink nach außen ersetzt wird, führt nicht aus dem Datenraum heraus.
 Symlinks werden nie hochgeladen; `report=true` und Bericht `{uploaded, duplicates, failed,
-empty}` mit lokalem Pfad je Datei — Exit 0 nur ohne `failed`; gleichnamige
-Dateien nie im selben Stapel, weil der Bericht nur Namen nennt. **Eine
+empty}` mit lokalem Pfad je Datei — Exit 0 nur ohne `failed`. Zugeordnet
+wird über `sourceFile` des Backends, den Namen so, wie er gesendet wurde (bei
+Archiven das Archiv); den gespeicherten Namen normalisiert Werkzeug
+(„Şahin.pdf" → „Sahin.pdf"), und ein Archivmitglied kann wie eine lose Datei
+heißen. Im selben Stapel ist deshalb jeder gesendete Name eindeutig — und
+zusätzlich der normalisierte, damit die Namens-Heuristik für Instanzen ohne
+`sourceFile` (mit einem Hinweis auf stderr) eindeutig bleibt. **Eine
 einzelne Datei ohne `--report`** bleibt beim bisherigen Vertrag: ein
 Request ohne `report=true`, Ausgabe das Array des Backends — bestehende
 Agenten lesen dort `--fields id`), `pipelines import`
