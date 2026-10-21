@@ -11,14 +11,12 @@ import (
 	"github.com/immoJUMP/immojump-cli/internal/output"
 )
 
-// Grenzen der Stapel-Routen für Feldwerte (custom_field_routes.py).
+// Grenzen der Stapel-Routen für Feldwerte (custom_field_routes.py). Gelesen
+// wird per POST …/values/batch/read mit den IDs im Body — als Query wären
+// 1000 UUIDs ~37 KB, gunicorn nimmt höchstens 4094 Bytes je Request-Zeile.
 const (
 	fieldValuesMaxRead  = 1000
 	fieldValuesMaxWrite = 500
-	// fieldValuesMaxQuery hält die Request-Zeile unter dem gunicorn-Default
-	// limit_request_line (4094 Bytes): 1000 UUIDs wären ~37 KB und kämen als
-	// 400 zurück, bevor die Route sie sieht.
-	fieldValuesMaxQuery = 3000
 )
 
 // listHouseUnits holt alle Einheiten einer Immobilie (alle Seiten).
@@ -46,27 +44,15 @@ func stringID(value any) string {
 	return strings.TrimSpace(fmt.Sprint(value))
 }
 
-// chunkIDs teilt IDs in Stapel: höchstens maxCount je Stapel und eine
-// URL-kodierte Länge unter maxQuery.
-func chunkIDs(ids []string, maxCount, maxQuery int) [][]string {
+// chunkIDs teilt IDs in Stapel zu höchstens size.
+func chunkIDs(ids []string, size int) [][]string {
 	var chunks [][]string
-	var current []string
-	length := 0
-	for _, id := range ids {
-		add := len(url.QueryEscape(id))
-		if len(current) > 0 {
-			add += len(url.QueryEscape(","))
-		}
-		if len(current) > 0 && (len(current) >= maxCount || length+add > maxQuery) {
-			chunks = append(chunks, current)
-			current, length = nil, 0
-			add = len(url.QueryEscape(id))
-		}
-		current = append(current, id)
-		length += add
+	for len(ids) > size {
+		chunks = append(chunks, ids[:size])
+		ids = ids[size:]
 	}
-	if len(current) > 0 {
-		chunks = append(chunks, current)
+	if len(ids) > 0 {
+		chunks = append(chunks, ids)
 	}
 	return chunks
 }
@@ -115,10 +101,15 @@ func (r *runner) runUnitsFieldsGet(immobilieID string, flags *flagValues, resolv
 		ids = append(ids, stringID(unit["id"]))
 	}
 	values := map[string]map[string]any{}
-	for _, chunk := range chunkIDs(ids, fieldValuesMaxRead, fieldValuesMaxQuery) {
+	for _, chunk := range chunkIDs(ids, fieldValuesMaxRead) {
+		body, err := output.Marshal(map[string]any{"model": "unit", "target_ids": chunk})
+		if err != nil {
+			return r.fail(err)
+		}
+		// Ein POST, der nur liest: Wiederholen ist sicher.
 		response, err := client.Do(api.Request{
-			Method: "GET", Path: "/api/custom-fields/values/batch",
-			Query: url.Values{"model": {"unit"}, "target_ids": {strings.Join(chunk, ",")}},
+			Method: "POST", Path: "/api/custom-fields/values/batch/read",
+			Body: body, ContentType: "application/json", Idempotent: true,
 		})
 		if err != nil {
 			return r.fail(err)

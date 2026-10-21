@@ -232,6 +232,7 @@ var specialBodyHints = map[string]string{
 	SpecialPipelineImport:      "YAML aus `--file` oder stdin (Content-Type `application/x-yaml`), Organisation als Query-Parameter.",
 	SpecialTagsSet:             "rohes JSON-Array der Tag-IDs, gebaut aus `--tag-ids`.",
 	SpecialDocumentsAnalyzeAll: "je Dokument `{}` — die Auswahl kommt aus den Filter-Flags, nicht aus `--set`/`--body`.",
+	SpecialUnitsFieldsGet:      "`{model: \"unit\", target_ids: [...]}` je 1000 Einheiten — ein POST, der nur liest (Risk read).",
 	SpecialUnitsImport:         "`{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).",
 	SpecialUnitsFieldsSet: "`{model: \"unit\", items: [{target_id, values}]}` in Stapeln zu 500, gebaut aus `--file` " +
 		"(NDJSON oder JSON-Array, je Datensatz `extern_id` oder `id` plus `values`).",
@@ -680,8 +681,8 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "units", Verb: "fields-get", Risk: RiskRead, Special: SpecialUnitsFieldsGet,
-		Summary: "Eigene Feldwerte aller Einheiten einer Immobilie: ein Array [{id, extern_id, einheit, values: {<Feldname>: wert}}] (Werte in Stapeln unter 3 KB Query)",
-		Method:  "GET", Path: "/api/custom-fields/values/batch",
+		Summary: "Eigene Feldwerte aller Einheiten einer Immobilie: ein Array [{id, extern_id, einheit, values: {<Feldname>: wert}}]",
+		Method:  "POST", Path: "/api/custom-fields/values/batch/read",
 		Calls: []string{
 			"GET /api/units/immobilie/{immobilie-id}/units (alle Seiten)",
 			"GET /api/custom-fields/definitions?model=unit (Feld-ID → Name)",
