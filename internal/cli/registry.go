@@ -55,6 +55,8 @@ const (
 	SpecialTagsSet         = "tags-set"
 	SpecialDocumentsUpload = "documents-upload"
 	SpecialPipelineImport  = "pipelines-import"
+	SpecialUnitsFieldsGet  = "units-fields-get"
+	SpecialUnitsFieldsSet  = "units-fields-set"
 )
 
 // APIRiskRule erklärt, wie der Escape-Hatch sein Risk-Level bekommt. Der Text
@@ -135,6 +137,11 @@ type Spec struct {
 	Local bool
 	// Raw: Die Antwort ist möglicherweise kein JSON (z. B. YAML-Export).
 	Raw bool
+	// Calls nennt die weiteren Requests eines Befehls, der mehr als einen
+	// Aufruf macht (Auflösen, Blättern, Nachschlagen) — für Hilfe, Referenz
+	// und Schema. Method/Path bleiben der Haupt-Request; nur der zählt für
+	// das Risk des Escape-Hatch.
+	Calls []string
 	// OrgQuery / OrgBody nennen den Query-Parameter bzw. Body-Schlüssel, in
 	// den die aufgelöste Organisation gehört — für Routen, die den Header
 	// X-Organisation-Id nicht lesen. Ohne Organisation: Exit 3 vor dem Request.
@@ -212,6 +219,8 @@ var specialBodyHints = map[string]string{
 	SpecialDocumentsUpload: "Multipart-Upload im Feld `files[]`, dazu `organisation_id` aus der Konfiguration.",
 	SpecialPipelineImport:  "YAML aus `--file` oder stdin (Content-Type `application/x-yaml`), Organisation als Query-Parameter.",
 	SpecialTagsSet:         "rohes JSON-Array der Tag-IDs, gebaut aus `--tag-ids`.",
+	SpecialUnitsFieldsSet: "`{model: \"unit\", items: [{target_id, values}]}` in Stapeln zu 500, gebaut aus `--file` " +
+		"(NDJSON oder JSON-Array, je Datensatz `extern_id` oder `id` plus `values`).",
 }
 
 // bodyHint erklärt, wie der Body gefüllt wird — ohne Präfix, damit Hilfe und
@@ -615,6 +624,32 @@ var Registry = []Spec{
 		}, unitListFlags...),
 		Query:   append([]FlagQuery{{Flag: "immobilie-id", Key: "immobilie_id"}}, unitListQuery...),
 		Example: "immojump units list-org --vacant --all --fields immobilie_name,einheit,livingspace,soll_rent",
+	},
+	{
+		Resource: "units", Verb: "fields-get", Risk: RiskRead, Special: SpecialUnitsFieldsGet,
+		Summary: "Eigene Feldwerte aller Einheiten einer Immobilie: ein Array [{id, extern_id, einheit, values: {<Feldname>: wert}}] (Werte in Stapeln unter 3 KB Query)",
+		Method:  "GET", Path: "/api/custom-fields/values/batch",
+		Calls: []string{
+			"GET /api/units/immobilie/{immobilie-id}/units (alle Seiten)",
+			"GET /api/custom-fields/definitions?model=unit (Feld-ID → Name)",
+		},
+		Args:    []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
+		Example: "immojump units fields-get 5 --fields extern_id,values.Marktmiete",
+	},
+	{
+		Resource: "units", Verb: "fields-set", Risk: RiskWrite, Special: SpecialUnitsFieldsSet,
+		Summary: "Eigene Feldwerte vieler Einheiten setzen, je 500 ein PUT (extern_id → id über die Einheitenliste; null leert ein Feld)",
+		Method:  "PUT", Path: "/api/custom-fields/values/batch",
+		Calls: []string{
+			"GET /api/units/immobilie/{immobilie-id}/units (alle Seiten, extern_id → id)",
+		},
+		Args: []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie, zu der die Einheiten gehören"}},
+		Flags: []Flag{
+			{Name: "file", Kind: FlagString, Required: true,
+				Desc: "NDJSON oder JSON-Array, je Datensatz {\"extern_id\"|\"id\": …, \"values\": {\"<Feldname oder Feld-ID>\": wert}}; - liest stdin"},
+			{Name: "format", Kind: FlagString, Desc: "ndjson oder json (ohne Angabe: aus der Endung, bei stdin aus dem ersten Zeichen)"},
+		},
+		Example: "immojump units fields-set 5 --file marktmieten.ndjson",
 	},
 	{
 		// Die Flags sind genau die Felder, die die Route liest

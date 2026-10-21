@@ -30,6 +30,8 @@ var unsupportedGlobals = map[string][]string{
 	SpecialDocumentsUpload: {"set", "body"},
 	SpecialPipelineImport:  {"set", "body"},
 	SpecialTagsSet:         {"set", "body"},
+	SpecialUnitsFieldsGet:  {"q", "set", "body"},
+	SpecialUnitsFieldsSet:  {"q", "set", "body"},
 	SpecialAuthLogin:       {"q", "set", "body"},
 	SpecialAuthStatus:      {"q", "set", "body"},
 	SpecialContextList:     {"q", "set", "body"},

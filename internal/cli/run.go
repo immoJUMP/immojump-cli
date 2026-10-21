@@ -641,6 +641,13 @@ func (r *runner) runHTTP(spec Spec, args []string, flags *flagValues) int {
 			"Kein API-Token gefunden. Setze IMMOJUMP_TOKEN oder lege einen Context an: immojump auth login --context <name> --token <token>"))
 	}
 
+	switch spec.Special {
+	case SpecialUnitsFieldsGet:
+		return r.runUnitsFieldsGet(args[0], flags, resolved)
+	case SpecialUnitsFieldsSet:
+		return r.runUnitsFieldsSet(args[0], flags, resolved)
+	}
+
 	request, err := r.buildRequest(spec, args, flags, resolved)
 	if err != nil {
 		return r.fail(err)

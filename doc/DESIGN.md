@@ -294,6 +294,29 @@ Seite, bleibt stdout leer — eine halbe Liste sähe aus wie die ganze.
 Boolesche Filter-Flags (`--vacant`) gehen als `true`/`false` in die Query:
 `--vacant=false` ist ein eigener Filter (vermietet), kein „Filter aus".
 
+### Befehle mit mehreren Aufrufen
+
+Einige Befehle sind mehr als ein Request: `units fields-get` holt Einheiten,
+Feld-Definitionen und Werte und übersetzt Feld-IDs in Namen; `units
+fields-set` löst `extern_id` über die Einheitenliste auf und schreibt in
+Stapeln. `Method`/`Path` der Spec ist dann der Haupt-Request (er allein
+bestimmt das Risk des Escape-Hatch), `Calls` nennt die übrigen — sichtbar in
+`--help`, `docs` und `schema`.
+
+Zwei Regeln gelten für alle Stapel-Befehle:
+
+- **Erst prüfen, dann senden.** Was sich lokal feststellen lässt (kaputte
+  Zeile, unbekannte `extern_id`), endet vor dem ersten Schreib-Request.
+- **Fehler zeigen in die Datei.** Scheitert Stapel *k*, trägt die Fehlerzeile
+  `committed_batches`, `batch`, `batch_offset`; in `errors[]` zeigt `index`
+  in die Eingabe (`batch_index` ist der Wert des Backends, `line` die Zeile).
+  Die Meldung des Backends bleibt unverändert und zählt innerhalb des Stapels.
+
+`GET /api/custom-fields/values/batch` erlaubt laut Vertrag 1000 IDs, die
+Request-Zeile darf bei gunicorn aber nur 4094 Bytes lang sein — 1000 UUIDs
+sind ~37 KB. Das CLI teilt deshalb zusätzlich nach Länge (Query unter 3 KB,
+gut 70 IDs je Aufruf).
+
 ### Wiederholungen: nur, wo sie nichts verdoppeln
 
 Lesende Aufrufe (GET/HEAD, auch über `api GET …`) wiederholt der Client selbst
@@ -392,7 +415,8 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
 - `contacts` list/get/create/update/set-status/delete/activities/immobilien
 - `immobilien` list/search/get/create/set-status/patch/delete/contacts/duplicate
 - `units` list/list-org/create/update/delete — die Listen mit Filtern
-  (`--type`, `--vacant`, `--extern-id`), `--limit`/`--offset` und `--all`
+  (`--type`, `--vacant`, `--extern-id`), `--limit`/`--offset` und `--all`;
+  fields-get/fields-set für eigene Feldwerte vieler Einheiten (siehe unten)
 - `activities` list/get/for-immobilie/create/update/delete
 - `pipelines` list/get/create/update/delete/statuses/add-status/export/import
 - `statuses` list/update/delete/swap/aliases/add-alias

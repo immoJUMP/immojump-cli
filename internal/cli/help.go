@@ -88,6 +88,9 @@ func (r *runner) printCommandHelp(spec Spec) {
 	fmt.Fprintf(r.stdout, "immojump %s — %s\n\n", spec.Name(), spec.Summary)
 	fmt.Fprintf(r.stdout, "Aufruf:   %s\n", spec.Usage())
 	fmt.Fprintf(r.stdout, "Endpoint: %s\n", spec.Endpoint())
+	for _, call := range spec.Calls {
+		fmt.Fprintf(r.stdout, "          + %s\n", call)
+	}
 	fmt.Fprintf(r.stdout, "Risk:     %s\n", spec.RiskLabel())
 	if rule := spec.RiskRule(); rule != "" {
 		fmt.Fprintf(r.stdout, "          %s\n", rule)
