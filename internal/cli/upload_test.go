@@ -363,3 +363,28 @@ func TestSecureFilenameMatchesWerkzeug(t *testing.T) {
 		}
 	}
 }
+
+// TestUploadAbortOnFirstBatchNamesWhatWasNotSent: Bricht der erste von
+// mehreren Stapeln ab (gemessen: 400, weil der Objektspeicher der Instanz
+// fehlte), muss die Fehlerzeile sagen, dass der Rest nie gesendet wurde —
+// sonst hält der Agent 10 von 32 Dateien für den ganzen Datenraum.
+func TestUploadAbortOnFirstBatchNamesWhatWasNotSent(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B", "c.pdf": "C"})
+	h := newHarness(t)
+	h.status = 400
+	h.respond = `{"error":"Failed to process all files: a.pdf: Processing error"}`
+	code, stdout, stderr := h.run("documents", "upload", root, "--batch-files", "1")
+	if code != 11 {
+		t.Fatalf("Exit 11 erwartet, got %d (%s)", code, stderr)
+	}
+	if stdout != "" || len(h.requests) != 1 {
+		t.Errorf("leeres stdout und ein Request erwartet, got %q / %d", stdout, len(h.requests))
+	}
+	line := errorLine(t, stderr)
+	if line["batch"] != float64(1) || line["batches"] != float64(3) || line["files_total"] != float64(3) || line["files_not_sent"] != float64(2) {
+		t.Errorf("Stapel- und Dateizahlen in der Fehlerzeile erwartet, got %v", line)
+	}
+	if !strings.HasPrefix(line["message"].(string), "Failed to process all files") {
+		t.Errorf("Backend-Meldung unverändert erwartet, got %q", line["message"])
+	}
+}

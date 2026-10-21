@@ -272,6 +272,27 @@ func continuesAfter(err error) bool {
 	return apiErr.Status == 0 || apiErr.Status >= 500 || apiErr.Status == 413
 }
 
+// abortedUpload ergänzt den Abbruch im ersten von mehreren Stapeln um die
+// Lage: Der Rest der Dateien wurde nie gesendet. Die Meldung des Backends
+// bleibt unverändert.
+func abortedUpload(err error, batches int, files, first []localFile) error {
+	var apiErr *api.Error
+	if !errors.As(err, &apiErr) {
+		return err
+	}
+	out := *apiErr
+	details := map[string]any{}
+	for key, value := range apiErr.Details {
+		details[key] = value
+	}
+	details["batch"] = 1
+	details["batches"] = batches
+	details["files_total"] = len(files)
+	details["files_not_sent"] = len(files) - len(first)
+	out.Details = details
+	return &out
+}
+
 func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved config.Resolved) int {
 	if resolved.Org == "" {
 		return r.fail(configErr("Für den Upload wird eine Organisation gebraucht. Setze IMMOJUMP_ORGANISATION_ID oder --org."))
@@ -356,7 +377,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			}
 			if !continuesAfter(err) {
 				if i == 0 {
-					return r.fail(err)
+					return r.fail(abortedUpload(err, len(batches), files, batches[0]))
 				}
 				for _, rest := range batches[i:] {
 					failBatch(rest, err.Error())
