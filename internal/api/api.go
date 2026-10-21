@@ -60,6 +60,11 @@ type Request struct {
 	// (units import gleicht über extern_id/id ab). GET und HEAD gelten immer
 	// als idempotent.
 	Idempotent bool
+	// RetryRateLimit erlaubt bei einem Schreibaufruf genau eine Sorte
+	// Wiederholung: nach 429. Das Rate Limit antwortet, bevor die Route läuft
+	// — dort ist sicher nichts passiert. Nach 5xx oder Netzwerkfehler kann
+	// der Aufruf angekommen sein; dann keine Wiederholung.
+	RetryRateLimit bool
 }
 
 // Response ist die rohe Antwort — die Interpretation macht internal/output.
@@ -201,7 +206,8 @@ func (c *Client) timeout() time.Duration {
 // Do führt den Aufruf aus. Antworten ab Status 400 werden zu *Error.
 //
 // Idempotente Aufrufe (GET/HEAD oder Request.Idempotent) wiederholt Do bis zu
-// c.Retries-mal bei 429/502/503/504 und Netzwerkfehlern — mit exponentiellem
+// c.Retries-mal bei 429/502/503/504 und Netzwerkfehlern, Aufrufe mit
+// RetryRateLimit nur bei 429 — mit exponentiellem
 // Backoff ab 1 s, Retry-After hat Vorrang, gedeckelt auf MaxRetryWait.
 // Schreibende Aufrufe ohne Idempotent laufen genau einmal.
 func (c *Client) Do(req Request) (*Response, error) {
@@ -219,14 +225,18 @@ func (c *Client) Do(req Request) (*Response, error) {
 		method = http.MethodGet
 	}
 
+	idempotent := req.Idempotent || method == http.MethodGet || method == http.MethodHead
 	attempts := 1
-	if c.Retries > 0 && (req.Idempotent || method == http.MethodGet || method == http.MethodHead) {
+	if c.Retries > 0 && (idempotent || req.RetryRateLimit) {
 		attempts += c.Retries
 	}
 	for attempt := 1; ; attempt++ {
 		res, err := c.doOnce(req, method, target)
 		var apiErr *Error
 		if err == nil || attempt >= attempts || !errors.As(err, &apiErr) || !apiErr.Retryable() {
+			return res, err
+		}
+		if !idempotent && apiErr.Status != http.StatusTooManyRequests {
 			return res, err
 		}
 		wait := retryWait(attempt, apiErr.RetryAfter)

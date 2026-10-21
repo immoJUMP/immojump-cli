@@ -251,3 +251,30 @@ func TestAnalyzeAllPolicyAndRequiredFlag(t *testing.T) {
 		t.Errorf("api POST …/analyze bleibt write, got %q", risk)
 	}
 }
+
+// TestAnalyzeNeverRetriesServerErrors: Ein verlorener Response nach einem
+// angekommenen POST hieße doppelt analysieren — ein abgeschlossenes oder
+// fehlgeschlagenes Dokument nimmt das Backend erneut an. Nur 429 taktet.
+func TestAnalyzeNeverRetriesServerErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"documents", "analyze-all", "--immobilie-id", "5"},
+		{"documents", "analyze", "d1", "d2"},
+	} {
+		h := newHarness(t)
+		b := &analyzeBackend{docs: []string{"d1", "d2"}, replies: map[string][]reply{
+			"d1": {{status: 503, body: `{"message":"kurz weg"}`}, {status: 202, body: `{}`}},
+		}}
+		h.handle = b.handle
+		code, stdout, _ := h.run(args...)
+		if code != 1 {
+			t.Fatalf("%v: Exit 1 erwartet, got %d", args, code)
+		}
+		if fmt.Sprint(b.analyzed) != "[d1 d2]" {
+			t.Errorf("%v: d1 genau einmal versucht erwartet, got %v", args, b.analyzed)
+		}
+		out := decodeAnalyze(t, stdout)
+		if len(out.Failed) != 1 || out.Failed[0]["status"] != float64(503) || fmt.Sprint(out.Queued) != "[d2]" {
+			t.Errorf("%v: d1 fehlgeschlagen, d2 vorgemerkt erwartet, got %+v", args, out)
+		}
+	}
+}

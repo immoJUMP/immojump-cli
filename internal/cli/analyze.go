@@ -22,17 +22,19 @@ type analyzeSummary struct {
 
 // queueAnalyses stößt die Analyse je Dokument an, eins nach dem anderen.
 //
-// Wiederholt wird bei 429/502/503/504 und Netzwerkfehlern (Retry-After hat
-// Vorrang): Ein doppelter Aufruf ist harmlos, das Backend vergibt die Analyse
-// je Dokument nur einmal und antwortet sonst 409. Bleibt das Rate Limit nach
-// allen Versuchen, hört der Befehl auf — die übrigen Dokumente stehen unter
-// skipped mit reason rate_limited, ein späterer Lauf setzt fort. 401 und 402
-// (Kontingent) treffen jedes weitere Dokument genauso und beenden ebenfalls.
+// Wiederholt wird NUR nach 429 (Retry-After hat Vorrang): Das Rate Limit
+// antwortet, bevor die Route läuft. Nach 5xx oder Netzwerkfehler kann die
+// Analyse angekommen sein, und ein abgeschlossenes oder fehlgeschlagenes
+// Dokument nimmt das Backend erneut an — eine Wiederholung kostete doppelt
+// KI-Kontingent. Bleibt das Rate Limit nach allen Versuchen, hört der Befehl
+// auf — die übrigen Dokumente stehen unter skipped mit reason rate_limited,
+// ein späterer Lauf setzt fort. 401 und 402 (Kontingent) treffen jedes
+// weitere Dokument genauso und beenden ebenfalls.
 func (r *runner) queueAnalyses(client *api.Client, ids []string, body []byte, summary *analyzeSummary) error {
 	for i, id := range ids {
 		_, err := client.Do(api.Request{
 			Method: "POST", Path: "/api/documents/documents/" + url.PathEscape(id) + "/analyze",
-			Body: body, ContentType: "application/json", Idempotent: true,
+			Body: body, ContentType: "application/json", RetryRateLimit: true,
 		})
 		if err == nil {
 			summary.Queued = append(summary.Queued, id)

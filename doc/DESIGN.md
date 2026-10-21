@@ -348,12 +348,16 @@ nur dort, wo das Backend einen zweiten Aufruf über einen Schlüssel als
 denselben erkennt.
 
 Als idempotent markiert sind: `units import` (nur Stapel, in denen jede Zeile
-`id` oder `extern_id` trägt), `units fields-set` (PUT derselben Werte) und die
-Analyse-Aufrufe von `documents analyze` mit mehreren IDs bzw. `analyze-all` —
-das Backend vergibt eine Analyse je Dokument nur einmal und antwortet sonst
-409. Bleibt bei `analyze-all` das Rate Limit nach allen Versuchen, hört der
-Befehl auf (Exit 7), statt jedes weitere Dokument ins 429 laufen zu lassen;
-die übrigen stehen mit `reason: rate_limited` in der Ausgabe. `analyze-all`
+`id` oder `extern_id` trägt) und `units fields-set` (PUT derselben Werte).
+Die Analyse-Aufrufe von `documents analyze` mit mehreren IDs bzw.
+`analyze-all` wiederholen **nur nach 429** (`api.Request.RetryRateLimit`):
+Das Rate Limit antwortet, bevor die Route läuft. Nach 5xx oder
+Netzwerkfehler kann die Analyse angekommen sein, und ein abgeschlossenes
+oder fehlgeschlagenes Dokument nimmt das Backend erneut an — eine
+Wiederholung kostete doppelt KI-Kontingent. Bleibt bei `analyze-all` das
+Rate Limit nach allen Versuchen, hört der Befehl auf (Exit 7), statt jedes
+weitere Dokument ins 429 laufen zu lassen; die übrigen stehen mit
+`reason: rate_limited` in der Ausgabe. `analyze-all`
 bricht außerdem ab, wenn die Dokumentliste ohne Umschlag kommt: Dann hat die
 Instanz die Filter nicht gelesen, und analysiert würde alles — auf Kosten des
 KI-Kontingents. `documents upload` wird nie wiederholt.
