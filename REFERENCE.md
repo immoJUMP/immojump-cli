@@ -46,7 +46,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `--readonly` | Nur lesende Befehle zulassen |
 | `--allow <wert>` | Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW) |
 | `--idempotency-key <wert>` | Wird als Idempotency-Key-Header mitgeschickt |
-| `--timeout <wert>` | Timeout je Request in Sekunden (Default 60) |
+| `--timeout <wert>` | Timeout je Request in Sekunden (Default 60, documents upload 300 je Stapel) |
 | `--retries <wert>` | Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); gilt für lesende Aufrufe, nie für Schreibbefehle |
 | `--verbose` | Methode und aufgerufene URL vor dem Request auf stderr zeigen |
 | `--version` | Version ausgeben |
@@ -1104,18 +1104,30 @@ Dokumente einer Immobilie auflisten (ohne extrahierter_text; den liefert nur das
 
 #### documents upload
 
-Dokument hochladen (Multipart)
+Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei
 
-- **Aufruf:** `immojump documents upload <datei>`
+- **Aufruf:** `immojump documents upload <datei>...`
 - **Endpoint:** `POST /api/documents/documents/bulk-upload`
 - **Risk:** `write`
 - **Argumente:**
-  - `datei` — Pfad zur Datei
+  - `datei` (mehrfach) — Datei oder Ordner, beliebig viele
 - **Flags:**
-  - `--immobilie-id <wert>` — Dokument dieser Immobilie zuordnen
+  - `--immobilie-id <wert>` — Dokumente dieser Immobilie zuordnen
+  - `--unit-id <wert>` — Dokumente dieser Einheit zuordnen (braucht --immobilie-id, Einheit derselben Immobilie)
+  - `--category <wert>` — Dokumentart: expose, mieterliste, mietvertrag, energieausweis, grundbuch, grundriss, wohnflaechenberechnung, betriebskosten, teilungserklaerung, wirtschaftsplan, hausgeldabrechnung, weg_protokoll, baulasten, altlasten, bauunterlagen, versicherung, kaufvertrag, rechnung, finanzierung oder sonstiges (ohne Angabe erkennt die Analyse die Art; gilt nicht für ZIP-Archive)
   - `--allow-duplicate` — Upload auch bei erkanntem Duplikat erlauben
-- **Body:** Multipart-Upload im Feld `files[]`, dazu `organisation_id` aus der Konfiguration.
-- **Beispiel:** `immojump documents upload expose.pdf --immobilie-id 5`
+  - `--recursive` — Ordner samt Unterordnern hochladen (ohne: nur die Dateien direkt im Ordner)
+  - `--batch-files <wert>` — höchstens so viele Dateien je Request (Default 10)
+  - `--batch-mb <wert>` — höchstens so viele MB je Request (Default 25; eine größere Datei geht allein)
+- **Body:** Multipart-Upload im Feld `files[]` (gestreamt, je Datei mit Content-Type aus der Endung), dazu `organisation_id` aus der Konfiguration und `report=true`.
+- **Details:**
+  - Ausgabe: {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.
+  - Exit 0 nur, wenn nichts fehlgeschlagen ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.
+  - Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.
+  - Dateien werden von der Platte gestreamt; Timeout je Stapel 300 s (OCR), --timeout ändert das.
+  - Uploads werden nie automatisch wiederholt. Erneut ausführen ist dank Duplikat-Erkennung sicher: Schon Hochgeladenes landet unter duplicates (nicht mit --allow-duplicate).
+  - Nach 5xx oder Netzwerkfehler geht es mit dem nächsten Stapel weiter; jeder andere Fehler (z. B. 400 für eine fremde unit_id, 403) stoppt. Mit nur einem Stapel endet der Aufruf wie ein einzelner Request mit dem Exit-Code des Fehlers.
+- **Beispiel:** `immojump documents upload datenraum/RH-01 --recursive --immobilie-id 5`
 
 #### documents rename
 

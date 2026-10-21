@@ -1,9 +1,12 @@
 package api
 
 import (
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -261,5 +264,63 @@ func TestResponseCarriesHeaders(t *testing.T) {
 	}
 	if got := res.Header.Get("X-Upload-Empty-Files"); got != `["a.pdf"]` {
 		t.Errorf("Header in der Antwort erwartet, got %q", got)
+	}
+}
+
+// TestMultipartStreamsFromDisk: Dateien kommen von der Platte, mit eigener
+// Content-Type-Angabe und vorab bekannter Länge.
+func TestMultipartStreamsFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/gross.pdf"
+	content := strings.Repeat("%PDF-1.4 ", 100000)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	var gotLength int64
+	var gotContent, gotType, gotField string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLength = r.ContentLength
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("ParseMultipartForm: %v", err)
+			return
+		}
+		header := r.MultipartForm.File["files[]"][0]
+		gotType = header.Header.Get("Content-Type")
+		f, _ := header.Open()
+		raw, _ := io.ReadAll(f)
+		gotContent = string(raw)
+		gotField = r.FormValue("report")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	_, err := testClient(srv).Do(Request{
+		Method: "POST", Path: "/api/documents/documents/bulk-upload",
+		Multipart: &Multipart{
+			Files:  []FilePart{{Field: "files[]", Filename: `Vertrag "A".pdf`, Path: path, ContentType: "application/pdf"}},
+			Fields: map[string]string{"report": "true"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if gotContent != content || gotType != "application/pdf" || gotField != "true" {
+		t.Errorf("Datei/Typ/Feld falsch übertragen: %d Bytes, %q, %q", len(gotContent), gotType, gotField)
+	}
+	if gotLength <= int64(len(content)) {
+		t.Errorf("Content-Length vorab erwartet, got %d", gotLength)
+	}
+}
+
+func TestMultipartMissingFileIsLocalError(t *testing.T) {
+	srv, calls := scripted(t, []int{200}, nil)
+	_, err := testClient(srv).Do(Request{
+		Method: "POST", Path: "/api/x",
+		Multipart: &Multipart{Files: []FilePart{{Field: "files[]", Filename: "weg.pdf", Path: t.TempDir() + "/weg.pdf"}}},
+	})
+	if err == nil || ExitCodeFor(err) == 8 {
+		t.Fatalf("lokaler Fehler (nicht Exit 8) erwartet, got %v", err)
+	}
+	if atomic.LoadInt32(calls) != 0 {
+		t.Error("ohne Datei kein Request")
 	}
 }

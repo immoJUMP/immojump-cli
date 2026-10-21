@@ -392,7 +392,8 @@ func validateArgs(spec Spec, args []string) error {
 	if len(args) < required {
 		return usageErr("%q erwartet %d Argument(e). Aufruf: %s", spec.Name(), required, spec.Usage())
 	}
-	if len(args) > len(spec.Args) {
+	variadic := len(spec.Args) > 0 && spec.Args[len(spec.Args)-1].Variadic
+	if len(args) > len(spec.Args) && !variadic {
 		return usageErr("%q erwartet höchstens %d Argument(e), bekommen: %d. Aufruf: %s",
 			spec.Name(), len(spec.Args), len(args), spec.Usage())
 	}
@@ -642,6 +643,8 @@ func (r *runner) runHTTP(spec Spec, args []string, flags *flagValues) int {
 	}
 
 	switch spec.Special {
+	case SpecialDocumentsUpload:
+		return r.runDocumentsUpload(args, flags, resolved)
 	case SpecialUnitsImport:
 		return r.runUnitsImport(args[0], flags, resolved)
 	case SpecialUnitsFieldsGet:

@@ -71,6 +71,8 @@ type Arg struct {
 	Name     string
 	Desc     string
 	Optional bool
+	// Variadic: das letzte Argument darf mehrfach stehen.
+	Variadic bool
 }
 
 // Flag ist ein benanntes Argument.
@@ -176,11 +178,14 @@ func (s Spec) Usage() string {
 		parts = append(parts, s.Verb)
 	}
 	for _, arg := range s.Args {
+		label := "<" + arg.Name + ">"
 		if arg.Optional {
-			parts = append(parts, "["+arg.Name+"]")
-		} else {
-			parts = append(parts, "<"+arg.Name+">")
+			label = "[" + arg.Name + "]"
 		}
+		if arg.Variadic {
+			label += "..."
+		}
+		parts = append(parts, label)
 	}
 	return strings.Join(parts, " ")
 }
@@ -220,10 +225,11 @@ const defaultBodyHint = "`--body '<json>'`, `--body @datei` oder `--body -` (std
 // specialBodyHints erklärt je Sonderfall, woraus der Body entsteht. Hilfe und
 // Referenz lesen beide hier — nicht aus einem switch im Renderer.
 var specialBodyHints = map[string]string{
-	SpecialDocumentsUpload: "Multipart-Upload im Feld `files[]`, dazu `organisation_id` aus der Konfiguration.",
-	SpecialPipelineImport:  "YAML aus `--file` oder stdin (Content-Type `application/x-yaml`), Organisation als Query-Parameter.",
-	SpecialTagsSet:         "rohes JSON-Array der Tag-IDs, gebaut aus `--tag-ids`.",
-	SpecialUnitsImport:     "`{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).",
+	SpecialDocumentsUpload: "Multipart-Upload im Feld `files[]` (gestreamt, je Datei mit Content-Type aus der Endung), " +
+		"dazu `organisation_id` aus der Konfiguration und `report=true`.",
+	SpecialPipelineImport: "YAML aus `--file` oder stdin (Content-Type `application/x-yaml`), Organisation als Query-Parameter.",
+	SpecialTagsSet:        "rohes JSON-Array der Tag-IDs, gebaut aus `--tag-ids`.",
+	SpecialUnitsImport:    "`{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).",
 	SpecialUnitsFieldsSet: "`{model: \"unit\", items: [{target_id, values}]}` in Stapeln zu 500, gebaut aus `--file` " +
 		"(NDJSON oder JSON-Array, je Datensatz `extern_id` oder `id` plus `values`).",
 }
@@ -346,7 +352,7 @@ var GlobalFlags = []Flag{
 	{Name: "readonly", Kind: FlagBool, Desc: "Nur lesende Befehle zulassen"},
 	{Name: "allow", Kind: FlagString, Desc: "Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW)"},
 	{Name: "idempotency-key", Kind: FlagString, Desc: "Wird als Idempotency-Key-Header mitgeschickt"},
-	{Name: "timeout", Kind: FlagString, Desc: "Timeout je Request in Sekunden (Default 60)"},
+	{Name: "timeout", Kind: FlagString, Desc: "Timeout je Request in Sekunden (Default 60, documents upload 300 je Stapel)"},
 	{Name: "retries", Kind: FlagString, Desc: "Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); " +
 		"gilt für lesende Aufrufe, nie für Schreibbefehle"},
 	{Name: "verbose", Kind: FlagBool, Desc: "Methode und aufgerufene URL vor dem Request auf stderr zeigen"},
@@ -1022,14 +1028,27 @@ var Registry = []Spec{
 	},
 	{
 		Resource: "documents", Verb: "upload", Risk: RiskWrite, Special: SpecialDocumentsUpload,
-		Summary: "Dokument hochladen (Multipart)",
+		Summary: "Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei",
 		Method:  "POST", Path: "/api/documents/documents/bulk-upload",
-		Args: []Arg{{Name: "datei", Desc: "Pfad zur Datei"}},
+		Args: []Arg{{Name: "datei", Desc: "Datei oder Ordner, beliebig viele", Variadic: true}},
 		Flags: []Flag{
-			{Name: "immobilie-id", Kind: FlagString, Desc: "Dokument dieser Immobilie zuordnen"},
+			{Name: "immobilie-id", Kind: FlagString, Desc: "Dokumente dieser Immobilie zuordnen"},
+			{Name: "unit-id", Kind: FlagString, Desc: "Dokumente dieser Einheit zuordnen (braucht --immobilie-id, Einheit derselben Immobilie)"},
+			{Name: "category", Kind: FlagString, Desc: documentCategoryDesc + " (ohne Angabe erkennt die Analyse die Art; gilt nicht für ZIP-Archive)"},
 			{Name: "allow-duplicate", Kind: FlagBool, Desc: "Upload auch bei erkanntem Duplikat erlauben"},
+			{Name: "recursive", Kind: FlagBool, Desc: "Ordner samt Unterordnern hochladen (ohne: nur die Dateien direkt im Ordner)"},
+			{Name: "batch-files", Kind: FlagNumber, Desc: "höchstens so viele Dateien je Request (Default 10)"},
+			{Name: "batch-mb", Kind: FlagNumber, Desc: "höchstens so viele MB je Request (Default 25; eine größere Datei geht allein)"},
 		},
-		Example: "immojump documents upload expose.pdf --immobilie-id 5",
+		Notes: []string{
+			"Ausgabe: {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.",
+			"Exit 0 nur, wenn nichts fehlgeschlagen ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.",
+			"Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.",
+			"Dateien werden von der Platte gestreamt; Timeout je Stapel 300 s (OCR), --timeout ändert das.",
+			"Uploads werden nie automatisch wiederholt. Erneut ausführen ist dank Duplikat-Erkennung sicher: Schon Hochgeladenes landet unter duplicates (nicht mit --allow-duplicate).",
+			"Nach 5xx oder Netzwerkfehler geht es mit dem nächsten Stapel weiter; jeder andere Fehler (z. B. 400 für eine fremde unit_id, 403) stoppt. Mit nur einem Stapel endet der Aufruf wie ein einzelner Request mit dem Exit-Code des Fehlers.",
+		},
+		Example: "immojump documents upload datenraum/RH-01 --recursive --immobilie-id 5",
 	},
 	{
 		Resource: "documents", Verb: "rename", Risk: RiskWrite,

@@ -62,6 +62,12 @@ func TestRegistryInvariants(t *testing.T) {
 			argNames[arg.Name] = true
 		}
 
+		for i, arg := range spec.Args {
+			if arg.Variadic && i != len(spec.Args)-1 {
+				t.Errorf("%q: nur das letzte Arg darf mehrfach stehen, %q steht davor", name, arg.Name)
+			}
+		}
+
 		optionalSeen := false
 		for _, arg := range spec.Args {
 			if arg.Optional {
