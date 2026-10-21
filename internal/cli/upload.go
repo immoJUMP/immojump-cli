@@ -107,22 +107,45 @@ func collectFiles(args []string, recursive bool) ([]localFile, error) {
 	return out, nil
 }
 
-// batchFiles teilt nach Anzahl und Größe. Eine Datei über der Größengrenze
-// geht allein.
+// uploadNameKey ist der Name, unter dem das Backend eine Datei meldet —
+// konservativ normalisiert: secure_filename, ohne Endung (das Backend wandelt
+// z. B. .docx in .pdf), ohne Groß-/Kleinschreibung.
+func uploadNameKey(path string) string {
+	return stem(secureFilename(filepath.Base(path)))
+}
+
+// batchFiles teilt nach Anzahl und Größe; eine Datei über der Größengrenze
+// geht allein. Zwei Dateien mit gleichem uploadNameKey landen nie im selben
+// Stapel: Der Bericht des Backends nennt nur Namen — sonst ließe sich nicht
+// sagen, welche von beiden Duplikat und welche neu ist. Die zweite rückt in
+// einen späteren Stapel, die Reihenfolge bleibt sonst erhalten.
 func batchFiles(files []localFile, maxFiles int, maxBytes int64) [][]localFile {
 	var batches [][]localFile
-	var current []localFile
-	var size int64
-	for _, file := range files {
-		if len(current) > 0 && (len(current) >= maxFiles || size+file.size > maxBytes) {
-			batches = append(batches, current)
-			current, size = nil, 0
+	pending := files
+	for len(pending) > 0 {
+		var batch, later []localFile
+		var size int64
+		names := map[string]bool{}
+		for i, file := range pending {
+			if len(batch) >= maxFiles {
+				later = append(later, pending[i:]...)
+				break
+			}
+			if len(batch) > 0 && size+file.size > maxBytes {
+				later = append(later, pending[i:]...)
+				break
+			}
+			key := uploadNameKey(file.path)
+			if names[key] {
+				later = append(later, file)
+				continue
+			}
+			names[key] = true
+			batch = append(batch, file)
+			size += file.size
 		}
-		current = append(current, file)
-		size += file.size
-	}
-	if len(current) > 0 {
-		batches = append(batches, current)
+		batches = append(batches, batch)
+		pending = later
 	}
 	return batches
 }

@@ -438,3 +438,67 @@ func TestUploadDropsUnreadableFileAndSendsTheRest(t *testing.T) {
 		t.Errorf("a.pdf unter failed, b.pdf hochgeladen erwartet, got %+v", out)
 	}
 }
+
+// TestUploadSplitsCollidingNamesIntoSeparateBatches: Das Backend meldet
+// Dateien nur über ihren (secure_filename-)Namen. Zwei gleichnamige Dateien
+// in einem Stapel ließen sich im Bericht nicht unterscheiden — A/vertrag.pdf
+// (Duplikat) und B/vertrag.pdf (neu) würden vertauscht.
+func TestUploadSplitsCollidingNamesIntoSeparateBatches(t *testing.T) {
+	root := dataroom(t, map[string]string{"A/vertrag.pdf": "alt", "B/vertrag.pdf": "neu", "B/x.pdf": "x"})
+	h := newHarness(t)
+	calls := 0
+	h.handle = func(rec *recorded) reply {
+		calls++
+		docs, dups := []string{}, []string{}
+		for _, header := range rec.Multipart.File["files[]"] {
+			if header.Filename == "vertrag.pdf" && calls == 1 {
+				// Der erste Stapel trägt A/vertrag.pdf — das gibt es schon.
+				dups = append(dups, `{"fileName":"vertrag.pdf","existingDocumentId":3}`)
+				continue
+			}
+			docs = append(docs, fmt.Sprintf(`{"id":%d,"dateiname":%q}`, calls*10+len(docs), header.Filename))
+		}
+		return reply{body: fmt.Sprintf(`{"documents":[%s],"duplicates":[%s],"failed":[],"empty":[]}`,
+			strings.Join(docs, ","), strings.Join(dups, ","))}
+	}
+	code, stdout, stderr := h.run("documents", "upload", root, "--recursive")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	if len(h.requests) != 2 {
+		t.Fatalf("zwei Stapel erwartet (Namen kollidieren), got %d", len(h.requests))
+	}
+	out := decodeUpload(t, stdout)
+	if out.Duplicates[0]["file"] != filepath.Join(root, "A", "vertrag.pdf") {
+		t.Errorf("Duplikat gehört zu A/vertrag.pdf, got %v", out.Duplicates[0]["file"])
+	}
+	files := map[string]bool{}
+	for _, up := range out.Uploaded {
+		files[up.File] = true
+	}
+	if len(out.Uploaded) != 2 || !files[filepath.Join(root, "B", "vertrag.pdf")] || !files[filepath.Join(root, "B", "x.pdf")] {
+		t.Errorf("Uploads gehören zu B/, got %+v", out.Uploaded)
+	}
+}
+
+func TestBatchFilesSeparatesNormalizedNameCollisions(t *testing.T) {
+	files := []localFile{
+		{path: "a/Vertrag.PDF", size: 1}, {path: "b/vertrag.pdf", size: 1},
+		{path: "c/Müller.pdf", size: 1}, {path: "d/Muller.pdf", size: 1},
+		{path: "e/plan.docx", size: 1}, {path: "f/plan.pdf", size: 1},
+		{path: "g/einzeln.pdf", size: 1},
+	}
+	for _, batch := range batchFiles(files, 10, 1<<30) {
+		seen := map[string]string{}
+		for _, file := range batch {
+			key := uploadNameKey(file.path)
+			if other, ok := seen[key]; ok {
+				t.Errorf("%s und %s im selben Stapel", other, file.path)
+			}
+			seen[key] = file.path
+		}
+	}
+	if n := len(batchFiles(files, 10, 1<<30)); n != 2 {
+		t.Errorf("zwei Stapel erwartet (je eine Kollision je Paar), got %d", n)
+	}
+}
