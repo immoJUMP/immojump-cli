@@ -151,6 +151,17 @@ func collectFiles(args []string, recursive bool, roots *uploadRoots) ([]localFil
 	return out, nil
 }
 
+// sourcePath findet die Datei des Stapels, deren gesendeter Name (Basename)
+// genau source ist. Im Stapel ist er eindeutig (batchFiles).
+func sourcePath(batch []localFile, source string) string {
+	for _, file := range batch {
+		if filepath.Base(file.path) == source {
+			return file.path
+		}
+	}
+	return ""
+}
+
 // uploadNameKey ist der Name, unter dem das Backend eine Datei meldet —
 // konservativ normalisiert: secure_filename, ohne Endung (das Backend wandelt
 // z. B. .docx in .pdf), ohne Groß-/Kleinschreibung.
@@ -159,10 +170,11 @@ func uploadNameKey(path string) string {
 }
 
 // batchFiles teilt nach Anzahl und Größe; eine Datei über der Größengrenze
-// geht allein. Zwei Dateien mit gleichem uploadNameKey landen nie im selben
-// Stapel: Der Bericht des Backends nennt nur Namen — sonst ließe sich nicht
-// sagen, welche von beiden Duplikat und welche neu ist. Die zweite rückt in
-// einen späteren Stapel, die Reihenfolge bleibt sonst erhalten.
+// geht allein. Im selben Stapel ist jeder gesendete Name (Basename, auch
+// ohne Groß-/Kleinschreibung) eindeutig — darüber ordnet sourceFile zu.
+// Zusätzlich bleibt der uploadNameKey eindeutig: Ohne sourceFile (ältere
+// Instanz) ist der gespeicherte Name die einzige Spur. Die zweite Datei rückt
+// in einen späteren Stapel, die Reihenfolge bleibt sonst erhalten.
 func batchFiles(files []localFile, maxFiles int, maxBytes int64) [][]localFile {
 	var batches [][]localFile
 	pending := files
@@ -179,12 +191,13 @@ func batchFiles(files []localFile, maxFiles int, maxBytes int64) [][]localFile {
 				later = append(later, pending[i:]...)
 				break
 			}
-			key := uploadNameKey(file.path)
-			if names[key] {
+			sent := "name:" + strings.ToLower(filepath.Base(file.path))
+			key := "secure:" + uploadNameKey(file.path)
+			if names[sent] || names[key] {
 				later = append(later, file)
 				continue
 			}
-			names[key] = true
+			names[sent], names[key] = true, true
 			batch = append(batch, file)
 			size += file.size
 		}
@@ -466,6 +479,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		return 0
 	}
 
+	heuristicWarned := false
 	report := uploadReport{Uploaded: []uploadedDoc{}, Duplicates: []map[string]any{}, Failed: []failedFile{}, Empty: []string{}}
 	batches := batchFiles(files, maxFiles, int64(maxMB*1024*1024))
 	failBatch := func(batch []localFile, message string) {
@@ -524,23 +538,41 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			continue
 		}
 		matcher := newFileMatcher(batch)
+		// Zuordnung über sourceFile: der Name, wie er gesendet wurde. Nur ohne
+		// sourceFile (ältere Instanz) bleibt die Namens-Heuristik — mit einem
+		// Hinweis, denn Normalisierung (Şahin → Sahin) und Archivmitglieder
+		// machen sie unsicher.
+		locate := func(entry map[string]any, name string) string {
+			if source, ok := entry["sourceFile"].(string); ok && source != "" {
+				if path := sourcePath(batch, source); path != "" {
+					return path
+				}
+			}
+			if !heuristicWarned {
+				heuristicWarned = true
+				_ = output.WriteWarning(r.stderr,
+					"Upload-Bericht ohne sourceFile (ältere Instanz): Zuordnung zu lokalen Dateien über den gespeicherten Namen — "+
+						"bei Umlauten/Sonderzeichen und Archiven unsicher.", nil)
+			}
+			return matcher.match(name)
+		}
 		for _, doc := range parsed.Documents {
-			name := stringID(doc["dateiname"])
-			report.Uploaded = append(report.Uploaded, uploadedDoc{ID: doc["id"], Dateiname: doc["dateiname"], File: matcher.match(name)})
+			path := locate(doc, stringID(doc["dateiname"]))
+			report.Uploaded = append(report.Uploaded, uploadedDoc{ID: doc["id"], Dateiname: doc["dateiname"], File: path})
 		}
 		for _, dup := range parsed.Duplicates {
 			entry := map[string]any{}
 			for key, value := range dup {
 				entry[key] = value
 			}
-			if path := matcher.match(stringID(dup["fileName"])); path != "" {
+			if path := locate(dup, stringID(dup["fileName"])); path != "" {
 				entry["file"] = path
 			}
 			report.Duplicates = append(report.Duplicates, entry)
 		}
 		for _, failed := range parsed.Failed {
 			name := stringID(failed["fileName"])
-			path := matcher.match(name)
+			path := locate(failed, name)
 			if path == "" {
 				path = name
 			}

@@ -50,7 +50,7 @@ func (b *uploadBackend) handle(rec *recorded) reply {
 	}
 	docs := []string{}
 	for i, name := range names {
-		docs = append(docs, fmt.Sprintf(`{"id":%d,"dateiname":%q,"unit_id":null}`, len(b.batches)*100+i, secureFilename(name)))
+		docs = append(docs, fmt.Sprintf(`{"id":%d,"dateiname":%q,"unit_id":null,"sourceFile":%q}`, len(b.batches)*100+i, secureFilename(name), name))
 	}
 	return reply{body: fmt.Sprintf(`{"documents":[%s],"duplicates":[],"failed":[],"empty":[]}`, strings.Join(docs, ","))}
 }
@@ -236,7 +236,7 @@ func TestUploadMapsReportToLocalFiles(t *testing.T) {
 func TestUploadDuplicatesAloneAreSuccess(t *testing.T) {
 	root := dataroom(t, map[string]string{"dup.pdf": "B"})
 	h := newHarness(t)
-	h.respond = `{"documents":[],"duplicates":[{"fileName":"dup.pdf"}],"failed":[],"empty":[]}`
+	h.respond = `{"documents":[],"duplicates":[{"fileName":"dup.pdf","sourceFile":"dup.pdf"}],"failed":[],"empty":[]}`
 	code, _, stderr := h.run("documents", "upload", root)
 	if code != 0 || stderr != "" {
 		t.Errorf("Duplikate sind kein Fehler: Exit 0 und leeres stderr erwartet, got %d %q", code, stderr)
@@ -599,5 +599,105 @@ func TestUploadRefusesParentSwappedBetweenBatches(t *testing.T) {
 	out := decodeUpload(t, stdout)
 	if len(out.Failed) != 1 || out.Failed[0].File != filepath.Join(root, "sub", "b.pdf") || !strings.Contains(out.Failed[0].Message, "außerhalb") {
 		t.Errorf("sub/b.pdf mit klarer Meldung unter failed erwartet, got %+v", out.Failed)
+	}
+}
+
+// sourceReport antwortet je gesendeter Datei mit sourceFile (Backend ab
+// 3af6851c7): dup → duplicates, sonst documents mit secure_filename-Namen.
+func sourceReport(dup func(name string) bool, extra func(name string) []string) func(rec *recorded) reply {
+	return func(rec *recorded) reply {
+		docs, dups := []string{}, []string{}
+		for i, header := range rec.Multipart.File["files[]"] {
+			name := header.Filename
+			if dup(name) {
+				dups = append(dups, fmt.Sprintf(`{"fileName":%q,"existingDocumentId":3,"sourceFile":%q}`, secureFilename(name), name))
+				continue
+			}
+			members := []string{secureFilename(name)}
+			if extra != nil {
+				if more := extra(name); more != nil {
+					members = more
+				}
+			}
+			for j, member := range members {
+				docs = append(docs, fmt.Sprintf(`{"id":%d,"dateiname":%q,"sourceFile":%q}`, 100*i+j+1, member, name))
+			}
+		}
+		return reply{body: fmt.Sprintf(`{"documents":[%s],"duplicates":[%s],"failed":[],"empty":[]}`,
+			strings.Join(docs, ","), strings.Join(dups, ","))}
+	}
+}
+
+// TestUploadMapsViaSourceFileDespiteNormalisation: Werkzeug macht aus
+// „Şahin.pdf“ „Sahin.pdf“ — der gespeicherte Name verrät nicht, welche der
+// beiden lokalen Dateien gemeint ist, sourceFile schon.
+func TestUploadMapsViaSourceFileDespiteNormalisation(t *testing.T) {
+	root := dataroom(t, map[string]string{"Şahin.pdf": "neu", "Sahin.pdf": "alt"})
+	h := newHarness(t)
+	h.handle = sourceReport(func(name string) bool { return name == "Sahin.pdf" }, nil)
+	code, stdout, stderr := h.run("documents", "upload", root)
+	if code != 0 || stderr != "" {
+		t.Fatalf("Exit 0 und leeres stderr erwartet, got %d (%s)", code, stderr)
+	}
+	out := decodeUpload(t, stdout)
+	if len(out.Uploaded) != 1 || out.Uploaded[0].File != filepath.Join(root, "Şahin.pdf") {
+		t.Errorf("neues Dokument gehört zu Şahin.pdf, got %+v", out.Uploaded)
+	}
+	if len(out.Duplicates) != 1 || out.Duplicates[0]["file"] != filepath.Join(root, "Sahin.pdf") {
+		t.Errorf("Duplikat gehört zu Sahin.pdf, got %v", out.Duplicates)
+	}
+}
+
+// TestUploadMapsArchiveMembersToTheArchive: Ein ZIP-Mitglied vertrag.pdf
+// heißt wie die lose vertrag.pdf daneben — zugeordnet wird über sourceFile,
+// alle Mitglieder gehören zum Archiv.
+func TestUploadMapsArchiveMembersToTheArchive(t *testing.T) {
+	root := dataroom(t, map[string]string{"datenraum.zip": "PK", "vertrag.pdf": "lose"})
+	h := newHarness(t)
+	h.handle = sourceReport(func(name string) bool { return name == "vertrag.pdf" }, func(name string) []string {
+		if name == "datenraum.zip" {
+			return []string{"vertrag.pdf", "grundbuch.pdf"}
+		}
+		return nil
+	})
+	code, stdout, stderr := h.run("documents", "upload", root)
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	if len(h.requests) != 1 {
+		t.Errorf("ein Stapel erwartet (die gesendeten Namen sind verschieden), got %d", len(h.requests))
+	}
+	out := decodeUpload(t, stdout)
+	zip := filepath.Join(root, "datenraum.zip")
+	if len(out.Uploaded) != 2 || out.Uploaded[0].File != zip || out.Uploaded[1].File != zip {
+		t.Errorf("beide Mitglieder gehören zum Archiv, got %+v", out.Uploaded)
+	}
+	if len(out.Duplicates) != 1 || out.Duplicates[0]["file"] != filepath.Join(root, "vertrag.pdf") {
+		t.Errorf("Duplikat gehört zur losen vertrag.pdf, got %v", out.Duplicates)
+	}
+}
+
+// TestUploadWarnsOnceWithoutSourceFile: Eine ältere Instanz liefert keinen
+// sourceFile — dann gilt die Namens-Heuristik, mit genau einem Hinweis.
+func TestUploadWarnsOnceWithoutSourceFile(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B", "c.pdf": "C"})
+	h := newHarness(t)
+	h.handle = func(rec *recorded) reply {
+		docs := []string{}
+		for i, header := range rec.Multipart.File["files[]"] {
+			docs = append(docs, fmt.Sprintf(`{"id":%d,"dateiname":%q}`, i+1, header.Filename))
+		}
+		return reply{body: `{"documents":[` + strings.Join(docs, ",") + `],"duplicates":[],"failed":[],"empty":[]}`}
+	}
+	code, stdout, stderr := h.run("documents", "upload", root, "--batch-files", "1")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	lines := stderrLines(t, stderr)
+	if len(lines) != 1 || lines[0]["warning"] != true || !strings.Contains(lines[0]["message"].(string), "sourceFile") {
+		t.Errorf("genau eine Warnung zu sourceFile erwartet, got %q", stderr)
+	}
+	if out := decodeUpload(t, stdout); len(out.Uploaded) != 3 || out.Uploaded[2].File != filepath.Join(root, "c.pdf") {
+		t.Errorf("Heuristik soll weiter zuordnen, got %+v", out.Uploaded)
 	}
 }
