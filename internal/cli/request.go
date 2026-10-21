@@ -101,6 +101,17 @@ func (r *runner) buildRequest(spec Spec, args []string, flags *flagValues, resol
 	if err != nil {
 		return nil, err
 	}
+	if (spec.OrgQuery != "" || spec.OrgBody != "") && resolved.Org == "" {
+		return nil, configErr(
+			"%q braucht eine Organisation. Setze IMMOJUMP_ORGANISATION_ID, --org oder lege einen Context an.",
+			spec.Name())
+	}
+	if spec.OrgQuery != "" {
+		if query == nil {
+			query = url.Values{}
+		}
+		query.Set(spec.OrgQuery, resolved.Org)
+	}
 
 	request := &api.Request{
 		Method:         method,
@@ -153,7 +164,12 @@ func (r *runner) buildRequest(spec Spec, args []string, flags *flagValues, resol
 		return request, nil
 	}
 
-	body, err := r.buildJSONBody(spec, method, flags)
+	var base []overlay
+	if spec.OrgBody != "" {
+		// Zuerst, damit ein ausdrückliches --set organisation_id=… gewinnt.
+		base = append(base, overlay{path: []string{spec.OrgBody}, value: resolved.Org})
+	}
+	body, err := r.buildJSONBody(spec, method, flags, base...)
 	if err != nil {
 		return nil, err
 	}
@@ -311,6 +327,13 @@ func flagBodyValue(flag Flag, flags *flagValues) (any, error) {
 	if flag.Norm == NormDateTime {
 		raw = normalizeDateTime(raw)
 	}
+	if flag.Norm == NormJSON {
+		value, ok := decodeSingleJSONValue(strings.TrimSpace(raw))
+		if !ok {
+			return nil, usageErr("--%s ist kein gültiges JSON: %q", flag.Name, raw)
+		}
+		return value, nil
+	}
 	return raw, nil
 }
 
@@ -374,13 +397,14 @@ func shareItems(flags *flagValues) []any {
 }
 
 // buildJSONBody setzt --body, --set und Sugar-Flags zusammen.
-func (r *runner) buildJSONBody(spec Spec, method string, flags *flagValues) ([]byte, error) {
+func (r *runner) buildJSONBody(spec Spec, method string, flags *flagValues, base ...overlay) ([]byte, error) {
 	overlays, err := bodyOverlays(spec, flags)
 	if err != nil {
 		return nil, err
 	}
+	overlays = append(base, overlays...)
 
-	var base []byte
+	var raw0 []byte
 	if flags.has("body") {
 		raw, err := r.readBodySource(flags.get("body"))
 		if err != nil {
@@ -389,26 +413,26 @@ func (r *runner) buildJSONBody(spec Spec, method string, flags *flagValues) ([]b
 		if !json.Valid(raw) {
 			return nil, usageErr("--body ist kein gültiges JSON")
 		}
-		base = raw
+		raw0 = raw
 	}
 
-	needsBody := base != nil || len(overlays) > 0 || methodExpectsBody(method)
+	needsBody := raw0 != nil || len(overlays) > 0 || methodExpectsBody(method)
 	if !needsBody {
 		return nil, nil
 	}
 
 	var body []byte
-	if len(overlays) == 0 && base != nil {
+	if len(overlays) == 0 && raw0 != nil {
 		// Unverändert durchreichen — auch Arrays und die Feldreihenfolge.
-		compact, err := output.Compact(base)
+		compact, err := output.Compact(raw0)
 		if err != nil {
 			return nil, usageErr("--body ist kein gültiges JSON: %v", err)
 		}
 		body = compact
 	} else {
 		object := map[string]any{}
-		if base != nil {
-			if err := decodeJSONExact(base, &object); err != nil {
+		if raw0 != nil {
+			if err := decodeJSONExact(raw0, &object); err != nil {
 				return nil, usageErr(
 					"--body muss ein JSON-Objekt sein, wenn zusätzlich --set oder Sugar-Flags gesetzt sind")
 			}

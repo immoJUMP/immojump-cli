@@ -20,6 +20,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `templates` | Aktivitäts-Vorlagen |
 | `documents` | Dokumente hochladen, analysieren, verwalten |
 | `tags` | Tags und ihre Zuordnung zu Objekten |
+| `fields` | Benutzerdefinierte Felder: Definitionen je Modell (Werte je Einheit: units fields-get/fields-set) |
 | `shares` | Freigabe-Links für Immobilien, Dokumente und Bilder |
 | `email` | Postfach: Nachrichten lesen, sortieren und versenden |
 | `feed` | Organisations-Feed: Beiträge, Kommentare, Channels |
@@ -1226,6 +1227,42 @@ Tags eines Objekts ersetzen (Body ist ein JSON-Array von IDs)
   - `--tag-ids <wert>` — (Pflicht) Tag-IDs, kommagetrennt; leer entfernt alle Tags
 - **Body:** rohes JSON-Array der Tag-IDs, gebaut aus `--tag-ids`.
 - **Beispiel:** `immojump tags set contact 42 --tag-ids 3,7`
+
+### fields
+
+Benutzerdefinierte Felder: Definitionen je Modell (Werte je Einheit: units fields-get/fields-set)
+
+| Befehl | Risk | Endpoint |
+| --- | --- | --- |
+| `fields list` | read | `GET /api/custom-fields/definitions` |
+| `fields create` | write | `POST /api/custom-fields/definitions` |
+
+#### fields list
+
+Feld-Definitionen eines Modells auflisten (Antwort {definitions: [{id, name, type, config, hint, usage_count}]})
+
+- **Aufruf:** `immojump fields list`
+- **Endpoint:** `GET /api/custom-fields/definitions`
+- **Risk:** `read`
+- **Flags:**
+  - `--model <wert>` — (Pflicht) Modell: unit, immobilie, contact, activity oder deal
+- **Beispiel:** `immojump fields list --model unit --fields definitions.id,definitions.name,definitions.type`
+
+#### fields create
+
+Feld-Definition anlegen (nur Admins der Organisation; gleicher Name im Modell ergibt 409)
+
+- **Aufruf:** `immojump fields create`
+- **Endpoint:** `POST /api/custom-fields/definitions`
+- **Risk:** `write`
+- **Flags:**
+  - `--model <wert>` — (Pflicht) Modell: unit, immobilie, contact, activity oder deal
+  - `--name <wert>` — (Pflicht) Feldname, z. B. „Marktmiete“ — unter diesem Namen schreibt units fields-set
+  - `--type <wert>` — (Pflicht) Feldtyp: text, richtext, number, boolean, date, time, dropdown oder relation
+  - `--config <wert>` — Typ-Konfiguration als JSON, z. B. Optionen eines dropdown
+  - `--hint <wert>` — Erklärung, die neben dem Feld steht
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump fields create --model unit --name Marktmiete --type number --hint '€/Monat laut Gutachten'`
 
 ### shares
 
