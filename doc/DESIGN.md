@@ -399,6 +399,10 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
 - `templates` list/recurring/by-status/get/create/update/delete/batch-move
 - `documents` list/upload/rename/delete/analyze/analyze-details/mark-reviewed/analysis-results
 - `tags` list/create/update/delete/of/set
+- `fields` list/create — Definitionen benutzerdefinierter Felder
+  (`/api/custom-fields/definitions`). Die Route liest `organisation_id` aus
+  Query bzw. Body statt aus dem Header; die Spec sagt das deklarativ
+  (`OrgQuery`/`OrgBody`), ohne Organisation endet der Aufruf mit Exit 3
 - `shares` list/create/update/revoke — **Freigabe-Links** für `immobilie`,
   `dokument`, `bild` (`/api/share-links`), mit Sugar-Flags für Items,
   Passwort, Ablauf, E-Mail-Versand; `update` folgt der Sent-Keys-Semantik des

@@ -112,6 +112,21 @@ func TestCommandRequestTable(t *testing.T) {
 			method: "PUT", path: "/api/units/unit/9", body: `{"lease_start_date":null}`},
 		{name: "units delete", args: []string{"units", "delete", "9"}, method: "DELETE", path: "/api/units/unit/9"},
 
+		// --- fields (benutzerdefinierte Felder) -----------------------------
+		// Die Definitionen-Route liest die Organisation aus Query bzw. Body,
+		// nicht aus dem Header (custom_field_routes.py).
+		{name: "fields list", args: []string{"fields", "list", "--model", "unit"},
+			method: "GET", path: "/api/custom-fields/definitions",
+			query: url.Values{"organisation_id": {"org-test"}, "model": {"unit"}}},
+		{name: "fields create", args: []string{"fields", "create", "--model", "unit", "--name", "Marktmiete",
+			"--type", "number", "--hint", "€/m² laut Gutachten", "--config", `{"decimals":2}`},
+			method: "POST", path: "/api/custom-fields/definitions",
+			body: `{"organisation_id":"org-test","model":"unit","name":"Marktmiete","type":"number",` +
+				`"hint":"€/m² laut Gutachten","config":{"decimals":2}}`},
+		{name: "fields create minimal", args: []string{"fields", "create", "--model", "unit", "--name", "Sanierungsbedarf", "--type", "boolean"},
+			method: "POST", path: "/api/custom-fields/definitions",
+			body: `{"organisation_id":"org-test","model":"unit","name":"Sanierungsbedarf","type":"boolean"}`},
+
 		// --- activities ---------------------------------------------------
 		{name: "activities list", args: []string{"activities", "list"}, method: "GET", path: "/api/activities/activities"},
 		{name: "activities get", args: []string{"activities", "get", "3"}, method: "GET", path: "/api/activities/activities/3"},

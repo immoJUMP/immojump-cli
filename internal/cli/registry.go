@@ -33,7 +33,11 @@ const (
 )
 
 // Norm markiert Werte, die vor dem Senden normalisiert werden.
-const NormDateTime = "datetime"
+const (
+	NormDateTime = "datetime"
+	// NormJSON liest den Wert als JSON (Objekt, Array, Zahl …) statt als String.
+	NormJSON = "json"
+)
 
 // Special markiert Befehle, die der Dispatcher gesondert behandelt.
 const (
@@ -131,6 +135,11 @@ type Spec struct {
 	Local bool
 	// Raw: Die Antwort ist möglicherweise kein JSON (z. B. YAML-Export).
 	Raw bool
+	// OrgQuery / OrgBody nennen den Query-Parameter bzw. Body-Schlüssel, in
+	// den die aufgelöste Organisation gehört — für Routen, die den Header
+	// X-Organisation-Id nicht lesen. Ohne Organisation: Exit 3 vor dem Request.
+	OrgQuery string
+	OrgBody  string
 	// Paged: Die Route blättert über limit/offset mit dem Umschlag
 	// {items, total, limit, offset}. Der Befehl führt dann --all: alle Seiten
 	// holen und als EIN Array ausgeben.
@@ -298,6 +307,7 @@ var Resources = []ResourceInfo{
 	{"templates", "Aktivitäts-Vorlagen"},
 	{"documents", "Dokumente hochladen, analysieren, verwalten"},
 	{"tags", "Tags und ihre Zuordnung zu Objekten"},
+	{"fields", "Benutzerdefinierte Felder: Definitionen je Modell (Werte je Einheit: units fields-get/fields-set)"},
 	{"shares", "Freigabe-Links für Immobilien, Dokumente und Bilder"},
 	{"email", "Postfach: Nachrichten lesen, sortieren und versenden"},
 	{"feed", "Organisations-Feed: Beiträge, Kommentare, Channels"},
@@ -362,6 +372,10 @@ var unitListQuery = []FlagQuery{
 
 // allPagesDesc erklärt --all einheitlich für jeden blätterbaren Befehl.
 const allPagesDesc = "alle Seiten holen (je 500, --limit ändert die Seitengröße) und als ein Array ausgeben"
+
+// fieldModelDesc nennt die Modelle, an denen es eigene Felder gibt
+// (ALLOWED_MODELS in custom_field_routes.py).
+const fieldModelDesc = "Modell: unit, immobilie, contact, activity oder deal"
 
 // idArg ist die häufigste Argument-Definition.
 func idArg(desc string) []Arg { return []Arg{{Name: "id", Desc: desc}} }
@@ -1038,6 +1052,40 @@ var Registry = []Spec{
 			{Name: "tag-ids", Kind: FlagList, Required: true, Desc: "Tag-IDs, kommagetrennt; leer entfernt alle Tags"},
 		},
 		Example: "immojump tags set contact 42 --tag-ids 3,7",
+	},
+
+	// --- fields (benutzerdefinierte Felder) ---------------------------------
+	// custom_field_routes.py liest organisation_id aus Query bzw. Body; ohne
+	// fällt es auf die Org des Web-Logins zurück — nicht die des Contexts.
+	{
+		Resource: "fields", Verb: "list", Risk: RiskRead,
+		Summary: "Feld-Definitionen eines Modells auflisten (Antwort {definitions: [{id, name, type, config, hint, usage_count}]})",
+		Method:  "GET", Path: "/api/custom-fields/definitions", OrgQuery: "organisation_id",
+		Flags: []Flag{
+			{Name: "model", Kind: FlagString, Required: true, Desc: fieldModelDesc},
+		},
+		Query:   []FlagQuery{{Flag: "model", Key: "model"}},
+		Example: "immojump fields list --model unit --fields definitions.id,definitions.name,definitions.type",
+	},
+	{
+		Resource: "fields", Verb: "create", Risk: RiskWrite,
+		Summary: "Feld-Definition anlegen (nur Admins der Organisation; gleicher Name im Modell ergibt 409)",
+		Method:  "POST", Path: "/api/custom-fields/definitions", OrgBody: "organisation_id",
+		Flags: []Flag{
+			{Name: "model", Kind: FlagString, Required: true, Desc: fieldModelDesc},
+			{Name: "name", Kind: FlagString, Required: true, Desc: "Feldname, z. B. „Marktmiete“ — unter diesem Namen schreibt units fields-set"},
+			{Name: "type", Kind: FlagString, Required: true, Desc: "Feldtyp: text, richtext, number, boolean, date, time, dropdown oder relation"},
+			{Name: "config", Kind: FlagString, Norm: NormJSON, Desc: "Typ-Konfiguration als JSON, z. B. Optionen eines dropdown"},
+			{Name: "hint", Kind: FlagString, Desc: "Erklärung, die neben dem Feld steht"},
+		},
+		Body: []FlagBody{
+			{Flag: "model", Key: "model"},
+			{Flag: "name", Key: "name"},
+			{Flag: "type", Key: "type"},
+			{Flag: "hint", Key: "hint"},
+			{Flag: "config", Key: "config"},
+		},
+		Example: "immojump fields create --model unit --name Marktmiete --type number --hint '€/Monat laut Gutachten'",
 	},
 
 	// --- shares (Freigabe-Links) ------------------------------------------

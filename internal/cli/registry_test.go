@@ -310,6 +310,7 @@ func TestRegistryCoversDesignScope(t *testing.T) {
 		"templates":  {"list", "recurring", "by-status", "get", "create", "update", "delete", "batch-move"},
 		"documents":  {"list", "upload", "rename", "delete", "analyze", "analyze-details", "mark-reviewed", "analysis-results"},
 		"tags":       {"list", "create", "update", "delete", "of", "set"},
+		"fields":     {"list", "create"},
 		"shares":     {"list", "create", "update", "revoke"},
 		"feed": {"list", "by-context", "comments", "channels", "attachments", "mentions",
 			"post", "comment", "comment-object", "react", "seen", "edit", "comment-edit",
