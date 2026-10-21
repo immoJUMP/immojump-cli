@@ -1073,6 +1073,7 @@ Dokumente hochladen, analysieren, verwalten
 | `documents list` | read | `GET /api/documents/documents` |
 | `documents upload` | write | `POST /api/documents/documents/bulk-upload` |
 | `documents rename` | write | `PUT /api/documents/documents/{id}/rename` |
+| `documents set-unit` | write | `PUT /api/documents/documents/{id}/unit` |
 | `documents delete` | destructive | `DELETE /api/documents/documents/{id}` |
 | `documents publish` | external | `POST /api/documents/documents/{id}/publish` |
 | `documents unpublish` | external | `POST /api/documents/documents/{id}/unpublish` |
@@ -1083,14 +1084,23 @@ Dokumente hochladen, analysieren, verwalten
 
 #### documents list
 
-Dokumente auflisten
+Dokumente einer Immobilie auflisten (ohne extrahierter_text; den liefert nur das Einzeldokument)
 
 - **Aufruf:** `immojump documents list`
 - **Endpoint:** `GET /api/documents/documents`
 - **Risk:** `read`
+- **Flags:**
+  - `--immobilie-id <wert>` — Pflicht für die Route: Dokumente dieser Immobilie (oder -q immobilien_id=…)
+  - `--unit-id <wert>` — nur Dokumente, die dieser Einheit zugeordnet sind
+  - `--category <wert>` — Dokumentart: expose, mieterliste, mietvertrag, energieausweis, grundbuch, grundriss, wohnflaechenberechnung, betriebskosten, teilungserklaerung, wirtschaftsplan, hausgeldabrechnung, weg_protokoll, baulasten, altlasten, bauunterlagen, versicherung, kaufvertrag, rechnung, finanzierung oder sonstiges
+  - `--analysis-status <wert>` — Analyse-Status: not_started, queued, processing, completed oder failed
+  - `--search <wert>` — Suche in Dateiname und Titel (Query-Parameter q)
+  - `--limit <wert>` — Dokumente je Seite (1–500); damit kommt der Umschlag {items, total, limit, offset}
+  - `--offset <wert>` — ab dieser Position (0-basiert); mit --all der Startpunkt
+  - `--all` — alle Seiten holen (je 500, --limit ändert die Seitengröße) und als ein Array ausgeben
 - **Bekannte Query-Parameter** (per `-q key=value`):
-  - `immobilien_id` — Pflicht — die Route listet immer die Dokumente genau einer Immobilie
-- **Beispiel:** `immojump documents list -q immobilien_id=5 --fields id,dateiname`
+  - `immobilien_id` — Pflicht — die Route listet immer die Dokumente genau einer Immobilie (Kurzform: --immobilie-id)
+- **Beispiel:** `immojump documents list --immobilie-id 5 --analysis-status processing --limit 1 --fields total`
 
 #### documents upload
 
@@ -1120,6 +1130,21 @@ Dokument umbenennen
   - `--name <wert>` — (Pflicht) Neuer Dateiname
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
 - **Beispiel:** `immojump documents rename 11 --name 'Exposé Köln.pdf'`
+
+#### documents set-unit
+
+Dokument einer Einheit derselben Immobilie zuordnen (z. B. den Mietvertrag) oder die Zuordnung lösen
+
+- **Aufruf:** `immojump documents set-unit <id>`
+- **Endpoint:** `PUT /api/documents/documents/{id}/unit`
+- **Risk:** `write`
+- **Argumente:**
+  - `id` — ID des Dokuments
+- **Flags:**
+  - `--unit-id <wert>` — ID der Einheit (units list <immobilie-id>)
+  - `--clear` — Zuordnung lösen (schickt unit_id: null)
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump documents set-unit 11 --unit-id 3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83`
 
 #### documents delete
 

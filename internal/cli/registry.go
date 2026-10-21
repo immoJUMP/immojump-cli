@@ -391,6 +391,14 @@ const allPagesDesc = "alle Seiten holen (je 500, --limit ändert die Seitengrö�
 // (ALLOWED_MODELS in custom_field_routes.py).
 const fieldModelDesc = "Modell: unit, immobilie, contact, activity oder deal"
 
+// documentCategoryDesc nennt die Dokumentarten (document_categories.py).
+const documentCategoryDesc = "Dokumentart: expose, mieterliste, mietvertrag, energieausweis, grundbuch, grundriss, " +
+	"wohnflaechenberechnung, betriebskosten, teilungserklaerung, wirtschaftsplan, hausgeldabrechnung, weg_protokoll, " +
+	"baulasten, altlasten, bauunterlagen, versicherung, kaufvertrag, rechnung, finanzierung oder sonstiges"
+
+// analysisStatusDesc nennt die Werte von dokument.analysis_status.
+const analysisStatusDesc = "Analyse-Status: not_started, queued, processing, completed oder failed"
+
 // idArg ist die häufigste Argument-Definition.
 func idArg(desc string) []Arg { return []Arg{{Name: "id", Desc: desc}} }
 
@@ -985,12 +993,32 @@ var Registry = []Spec{
 
 	// --- documents --------------------------------------------------------
 	{
-		Resource: "documents", Verb: "list", Risk: RiskRead,
-		Summary: "Dokumente auflisten", Method: "GET", Path: "/api/documents/documents",
-		QueryHints: []QueryHint{
-			{"immobilien_id", "Pflicht — die Route listet immer die Dokumente genau einer Immobilie"},
+		Resource: "documents", Verb: "list", Risk: RiskRead, Paged: true,
+		Summary: "Dokumente einer Immobilie auflisten (ohne extrahierter_text; den liefert nur das Einzeldokument)",
+		Method:  "GET", Path: "/api/documents/documents",
+		Flags: []Flag{
+			{Name: "immobilie-id", Kind: FlagString, Desc: "Pflicht für die Route: Dokumente dieser Immobilie (oder -q immobilien_id=…)"},
+			{Name: "unit-id", Kind: FlagString, Desc: "nur Dokumente, die dieser Einheit zugeordnet sind"},
+			{Name: "category", Kind: FlagString, Desc: documentCategoryDesc},
+			{Name: "analysis-status", Kind: FlagString, Desc: analysisStatusDesc},
+			{Name: "search", Kind: FlagString, Desc: "Suche in Dateiname und Titel (Query-Parameter q)"},
+			{Name: "limit", Kind: FlagNumber, Desc: "Dokumente je Seite (1–500); damit kommt der Umschlag {items, total, limit, offset}"},
+			{Name: "offset", Kind: FlagNumber, Desc: "ab dieser Position (0-basiert); mit --all der Startpunkt"},
+			{Name: "all", Kind: FlagBool, Desc: allPagesDesc},
 		},
-		Example: "immojump documents list -q immobilien_id=5 --fields id,dateiname",
+		Query: []FlagQuery{
+			{Flag: "immobilie-id", Key: "immobilien_id"},
+			{Flag: "unit-id", Key: "unit_id"},
+			{Flag: "category", Key: "category"},
+			{Flag: "analysis-status", Key: "analysis_status"},
+			{Flag: "search", Key: "q"},
+			{Flag: "limit", Key: "limit"},
+			{Flag: "offset", Key: "offset"},
+		},
+		QueryHints: []QueryHint{
+			{"immobilien_id", "Pflicht — die Route listet immer die Dokumente genau einer Immobilie (Kurzform: --immobilie-id)"},
+		},
+		Example: "immojump documents list --immobilie-id 5 --analysis-status processing --limit 1 --fields total",
 	},
 	{
 		Resource: "documents", Verb: "upload", Risk: RiskWrite, Special: SpecialDocumentsUpload,
@@ -1013,6 +1041,22 @@ var Registry = []Spec{
 		// Das Backend liest new_filename (document_routes.py), nicht name.
 		Body:    []FlagBody{{Flag: "name", Key: "new_filename"}},
 		Example: "immojump documents rename 11 --name 'Exposé Köln.pdf'",
+	},
+	{
+		Resource: "documents", Verb: "set-unit", Risk: RiskWrite,
+		Summary: "Dokument einer Einheit derselben Immobilie zuordnen (z. B. den Mietvertrag) oder die Zuordnung lösen",
+		Method:  "PUT", Path: "/api/documents/documents/{id}/unit",
+		Args: idArg("ID des Dokuments"),
+		Flags: []Flag{
+			{Name: "unit-id", Kind: FlagString, Desc: "ID der Einheit (units list <immobilie-id>)"},
+			{Name: "clear", Kind: FlagBool, Desc: "Zuordnung lösen (schickt unit_id: null)"},
+		},
+		Body: []FlagBody{
+			{Flag: "unit-id", Key: "unit_id"},
+			{Flag: "clear", Key: "unit_id", Null: true},
+		},
+		EmptyBodyHint: "Ziel fehlt: --unit-id <id> oder --clear",
+		Example:       "immojump documents set-unit 11 --unit-id 3f6c2a9e-8b1d-4c7e-9a52-1d0e7b4f6a83",
 	},
 	{
 		Resource: "documents", Verb: "delete", Risk: RiskDestructive,
