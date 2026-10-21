@@ -1128,6 +1128,7 @@ Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei
   - Ausgabe: {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.
   - Exit 0 nur, wenn nichts fehlgeschlagen ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.
   - Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.
+  - Symbolische Links werden nie hochgeladen (im Ordner übersprungen, ausdrücklich genannt Exit 2). Beim Senden wird jede Datei ohne Symlink-Folgen geprüft (Lstat, Fstat, gleiche Datei); scheitert das, steht sie unter failed und der Rest des Stapels geht raus.
   - Dateien werden von der Platte gestreamt; Timeout je Stapel 300 s (OCR), --timeout ändert das.
   - Uploads werden nie automatisch wiederholt. Erneut ausführen ist dank Duplikat-Erkennung sicher: Schon Hochgeladenes landet unter duplicates (nicht mit --allow-duplicate).
   - Nach 5xx oder Netzwerkfehler geht es mit dem nächsten Stapel weiter; jeder andere Fehler (z. B. 400 für eine fremde unit_id, 403) stoppt. Mit nur einem Stapel endet der Aufruf wie ein einzelner Request mit dem Exit-Code des Fehlers.

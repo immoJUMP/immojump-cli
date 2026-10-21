@@ -471,7 +471,10 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
 Spezialfälle: `documents upload` (Multipart `files[]` gegen
 `/api/documents/documents/bulk-upload`; Dateien und Ordner, Stapel nach
 `--batch-files`/`--batch-mb`, von der Platte gestreamt mit vorab berechneter
-Content-Length, `report=true` und Bericht `{uploaded, duplicates, failed,
+Content-Length — die Länge stammt aus dem Fstat des schon geöffneten
+Deskriptors, und der muss dieselbe Datei sein wie das Lstat davor; ein
+zwischen Aufzählung und Senden untergeschobener Symlink fällt so auf,
+Symlinks werden nie hochgeladen; `report=true` und Bericht `{uploaded, duplicates, failed,
 empty}` mit lokalem Pfad je Datei — Exit 0 nur ohne `failed`), `pipelines import`
 (`Content-Type: application/x-yaml` plus `?organisation_id=…`), `tags set`
 (Body ist ein rohes JSON-Array von Tag-IDs), `shares create` (items-Liste aus

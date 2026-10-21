@@ -293,10 +293,15 @@ func parseRetryAfter(raw string, now time.Time) time.Duration {
 func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
 	body, contentType, length, err := buildBody(req)
 	if err != nil {
+		var localErr *Error
+		if errors.As(err, &localErr) {
+			return nil, localErr
+		}
 		return nil, &Error{Message: err.Error(), Code: "BAD_REQUEST_BODY", Exit: 2}
 	}
-	if closer, ok := body.(io.Closer); ok {
-		defer func() { _ = closer.Close() }()
+	stream, _ := body.(*streamBody)
+	if stream != nil {
+		defer func() { _ = stream.finish() }()
 	}
 
 	if c.Trace != nil {
@@ -330,11 +335,21 @@ func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
 	}
 
 	httpRes, err := c.httpClient().Do(httpReq)
+	if stream != nil {
+		// Ein Lesefehler an einer Datei zählt, auch wenn der Server schon
+		// geantwortet hat: Dann kam ein unvollständiger Body an.
+		if streamErr := stream.finish(); streamErr != nil {
+			if httpRes != nil {
+				_ = httpRes.Body.Close()
+			}
+			return nil, streamErr
+		}
+	}
 	if err != nil {
 		var localErr *Error
 		if errors.As(err, &localErr) {
-			// Ein Fehler beim Lesen einer lokalen Datei für den Upload ist
-			// kein Netzwerkproblem — ein Retry änderte daran nichts.
+			// Ein Fehler an einer lokalen Datei ist kein Netzwerkproblem —
+			// ein Retry änderte daran nichts.
 			return nil, localErr
 		}
 		return nil, &Error{
@@ -417,22 +432,75 @@ func partHeader(file FilePart) textproto.MIMEHeader {
 	return header
 }
 
-// fileSize ist die Größe eines Datei-Teils, ohne ihn zu lesen.
-func fileSize(file FilePart) (int64, error) {
-	if file.Path == "" {
-		return int64(len(file.Content)), nil
+// Testhaken für das Zeitfenster zwischen Prüfung und Öffnen bzw. nach dem
+// Fstat — nur in Tests gesetzt.
+var (
+	hookBeforeOpen func(path string)
+	hookAfterStat  func(path string)
+)
+
+// localFileErr ist ein Fehler an einer lokalen Datei, bevor der Request
+// rausgeht: Der Aufrufer kann die Datei aussortieren und den Rest senden.
+func localFileErr(path, format string, a ...any) *Error {
+	return &Error{
+		Message: fmt.Sprintf(format, a...),
+		Code:    "LOCAL_FILE",
+		Exit:    1,
+		Details: map[string]any{"file": path},
 	}
-	info, err := os.Stat(file.Path)
+}
+
+// openUploadFile öffnet eine Datei für den Upload, ohne einem Symlink zu
+// folgen, der nach der Aufzählung untergeschoben wurde: Lstat muss eine
+// normale Datei zeigen, und das Fstat des geöffneten Deskriptors muss
+// dieselbe Datei sein. Die Länge kommt aus genau diesem Fstat.
+func openUploadFile(path string) (*os.File, int64, error) {
+	before, err := os.Lstat(path)
 	if err != nil {
-		return 0, fmt.Errorf("Datei %s nicht lesbar: %v", file.Path, err)
+		return nil, 0, localFileErr(path, "Datei %s nicht lesbar: %v", path, err)
 	}
-	return info.Size(), nil
+	if !before.Mode().IsRegular() {
+		return nil, 0, localFileErr(path, "%s ist keine normale Datei (Symlink oder Sonderdatei) — nicht hochgeladen", path)
+	}
+	if hookBeforeOpen != nil {
+		hookBeforeOpen(path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, localFileErr(path, "Datei %s nicht lesbar: %v", path, err)
+	}
+	opened, err := f.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		_ = f.Close()
+		return nil, 0, localFileErr(path, "%s wurde zwischen Prüfung und Öffnen ausgetauscht — nicht hochgeladen", path)
+	}
+	if hookAfterStat != nil {
+		hookAfterStat(path)
+	}
+	return f, opened.Size(), nil
+}
+
+// streamBody ist der gestreamte Multipart-Body. err hält einen Lesefehler an
+// einer lokalen Datei fest — auch dann, wenn der Server schon geantwortet
+// hat, bevor er den Body ganz gelesen hatte.
+type streamBody struct {
+	*io.PipeReader
+	done chan struct{}
+	err  error
+}
+
+// finish schließt den Body, wartet auf den Schreiber und meldet dessen
+// Datei-Fehler.
+func (b *streamBody) finish() error {
+	_ = b.PipeReader.Close()
+	<-b.done
+	return b.err
 }
 
 // writeMultipart schreibt Formfelder (sortiert) und Dateien; copyFile füllt
 // den Inhalt einer Datei. Ein copyFile, der nichts schreibt, ergibt genau den
 // Rahmen — so entsteht die Content-Length vorab.
-func writeMultipart(w io.Writer, boundary string, m *Multipart, copyFile func(io.Writer, FilePart) error) error {
+func writeMultipart(w io.Writer, boundary string, m *Multipart, copyFile func(io.Writer, int, FilePart) error) error {
 	writer := multipart.NewWriter(w)
 	if err := writer.SetBoundary(boundary); err != nil {
 		return err
@@ -447,12 +515,12 @@ func writeMultipart(w io.Writer, boundary string, m *Multipart, copyFile func(io
 			return fmt.Errorf("Formfeld %s nicht schreibbar: %v", key, err)
 		}
 	}
-	for _, file := range m.Files {
+	for i, file := range m.Files {
 		part, err := writer.CreatePart(partHeader(file))
 		if err != nil {
 			return fmt.Errorf("Multipart-Feld %s nicht baubar: %v", file.Field, err)
 		}
-		if err := copyFile(part, file); err != nil {
+		if err := copyFile(part, i, file); err != nil {
 			return err
 		}
 	}
@@ -468,45 +536,74 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 }
 
 // multipartBody streamt den Upload über eine Pipe: Jede Datei wird erst beim
-// Senden von der Platte gelesen, nie komplett in den Speicher. Die Länge ist
-// trotzdem vorab bekannt (Rahmen + Dateigrößen) — kein chunked Transfer, den
-// manche Proxys ablehnen.
+// Senden von der Platte gelesen, nie komplett in den Speicher. Alle Dateien
+// sind vorher geöffnet und geprüft (openUploadFile) — schlägt das fehl, geht
+// kein Request raus. Die Länge ist vorab bekannt (Rahmen + Fstat-Größen) —
+// kein chunked Transfer, den manche Proxys ablehnen.
 func multipartBody(m *Multipart) (io.Reader, string, int64, error) {
 	boundary := multipart.NewWriter(io.Discard).Boundary()
-	var sizes int64
-	for _, file := range m.Files {
-		size, err := fileSize(file)
-		if err != nil {
-			return nil, "", 0, err
+	opened := make([]*os.File, len(m.Files))
+	sizes := make([]int64, len(m.Files))
+	closeAll := func() {
+		for _, f := range opened {
+			if f != nil {
+				_ = f.Close()
+			}
 		}
-		sizes += size
+	}
+	var total int64
+	for i, file := range m.Files {
+		if file.Path == "" {
+			sizes[i] = int64(len(file.Content))
+		} else {
+			f, size, err := openUploadFile(file.Path)
+			if err != nil {
+				closeAll()
+				return nil, "", 0, err
+			}
+			opened[i], sizes[i] = f, size
+		}
+		total += sizes[i]
 	}
 	frame := &countingWriter{}
-	if err := writeMultipart(frame, boundary, m, func(io.Writer, FilePart) error { return nil }); err != nil {
+	if err := writeMultipart(frame, boundary, m, func(io.Writer, int, FilePart) error { return nil }); err != nil {
+		closeAll()
 		return nil, "", 0, err
 	}
 	contentType := "multipart/form-data; boundary=" + boundary
 
 	reader, writer := io.Pipe()
+	body := &streamBody{PipeReader: reader, done: make(chan struct{})}
 	go func() {
-		err := writeMultipart(writer, boundary, m, func(w io.Writer, file FilePart) error {
-			if file.Path == "" {
+		defer close(body.done)
+		defer closeAll()
+		err := writeMultipart(writer, boundary, m, func(w io.Writer, i int, file FilePart) error {
+			if opened[i] == nil {
 				_, err := w.Write(file.Content)
 				return err
 			}
-			f, err := os.Open(file.Path)
-			if err != nil {
-				return &Error{Message: fmt.Sprintf("Datei %s nicht lesbar: %v", file.Path, err), Code: "LOCAL_FILE", Exit: 1}
+			if _, err := io.CopyN(w, opened[i], sizes[i]); err != nil {
+				var pipeErr *Error
+				if errors.As(err, &pipeErr) || errors.Is(err, io.ErrClosedPipe) {
+					return err
+				}
+				body.err = &Error{Message: fmt.Sprintf("Datei %s nicht lesbar: %v", file.Path, err), Code: "LOCAL_FILE_CHANGED", Exit: 1,
+					Details: map[string]any{"file": file.Path}}
+				return body.err
 			}
-			defer func() { _ = f.Close() }()
-			if _, err := io.Copy(w, f); err != nil {
-				return &Error{Message: fmt.Sprintf("Datei %s nicht lesbar: %v", file.Path, err), Code: "LOCAL_FILE", Exit: 1}
+			// Mehr als beim Fstat? Dann hat sich die Datei beim Senden
+			// geändert — abschneiden wäre ein stiller Datenfehler.
+			var probe [1]byte
+			if n, _ := opened[i].Read(probe[:]); n > 0 {
+				body.err = &Error{Message: fmt.Sprintf("Datei %s hat sich beim Senden geändert — nicht hochgeladen", file.Path),
+					Code: "LOCAL_FILE_CHANGED", Exit: 1, Details: map[string]any{"file": file.Path}}
+				return body.err
 			}
 			return nil
 		})
 		_ = writer.CloseWithError(err)
 	}()
-	return reader, contentType, frame.n + sizes, nil
+	return body, contentType, frame.n + total, nil
 }
 
 // maxRawSnippet begrenzt den Rohtext einer Nicht-JSON-Antwort.
