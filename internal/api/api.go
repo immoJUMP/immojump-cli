@@ -38,6 +38,12 @@ type FilePart struct {
 	Content     []byte
 	Path        string
 	ContentType string
+	// Root und Name: Die Datei wird über os.Root geöffnet (Name relativ zu
+	// Root) — kein Symlink und kein „..“ führt aus dem Datenraum heraus,
+	// auch nicht über einen nachträglich getauschten Elternordner. Path
+	// bleibt der Name für Meldungen.
+	Root *os.Root
+	Name string
 }
 
 // Multipart beschreibt einen Upload aus Dateien plus Formfeldern.
@@ -454,10 +460,16 @@ func localFileErr(path, format string, a ...any) *Error {
 // folgen, der nach der Aufzählung untergeschoben wurde: Lstat muss eine
 // normale Datei zeigen, und das Fstat des geöffneten Deskriptors muss
 // dieselbe Datei sein. Die Länge kommt aus genau diesem Fstat.
-func openUploadFile(path string) (*os.File, int64, error) {
-	before, err := os.Lstat(path)
+func openUploadFile(file FilePart) (*os.File, int64, error) {
+	path := file.Path
+	lstat, open := os.Lstat, os.Open
+	name := path
+	if file.Root != nil {
+		lstat, open, name = file.Root.Lstat, file.Root.Open, file.Name
+	}
+	before, err := lstat(name)
 	if err != nil {
-		return nil, 0, localFileErr(path, "Datei %s nicht lesbar: %v", path, err)
+		return nil, 0, localFileErr(path, "Datei %s nicht lesbar oder außerhalb des Datenraums (Symlink?): %v — nicht hochgeladen", path, err)
 	}
 	if !before.Mode().IsRegular() {
 		return nil, 0, localFileErr(path, "%s ist keine normale Datei (Symlink oder Sonderdatei) — nicht hochgeladen", path)
@@ -465,9 +477,9 @@ func openUploadFile(path string) (*os.File, int64, error) {
 	if hookBeforeOpen != nil {
 		hookBeforeOpen(path)
 	}
-	f, err := os.Open(path)
+	f, err := open(name)
 	if err != nil {
-		return nil, 0, localFileErr(path, "Datei %s nicht lesbar: %v", path, err)
+		return nil, 0, localFileErr(path, "Datei %s nicht lesbar oder außerhalb des Datenraums (Symlink?): %v — nicht hochgeladen", path, err)
 	}
 	opened, err := f.Stat()
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
@@ -553,10 +565,10 @@ func multipartBody(m *Multipart) (io.Reader, string, int64, error) {
 	}
 	var total int64
 	for i, file := range m.Files {
-		if file.Path == "" {
+		if file.Path == "" && file.Root == nil {
 			sizes[i] = int64(len(file.Content))
 		} else {
-			f, size, err := openUploadFile(file.Path)
+			f, size, err := openUploadFile(file)
 			if err != nil {
 				closeAll()
 				return nil, "", 0, err

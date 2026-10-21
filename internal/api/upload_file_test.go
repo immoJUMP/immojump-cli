@@ -2,6 +2,9 @@ package api
 
 import (
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -84,5 +87,89 @@ func TestUploadFailsWhenFileGrowsWhileSending(t *testing.T) {
 	}
 	if ExitCodeFor(err) == 8 {
 		t.Errorf("lokaler Fehler, kein Exit 8 (Retry hilft nicht), got %v", err)
+	}
+}
+
+// rootedDataroom legt root/sub/vertrag.pdf und außerhalb outside/vertrag.pdf an.
+func rootedDataroom(t *testing.T) (dir, outside string, root *os.Root) {
+	t.Helper()
+	base := t.TempDir()
+	dir = filepath.Join(base, "datenraum")
+	outside = filepath.Join(base, "fremd")
+	_ = os.MkdirAll(filepath.Join(dir, "sub"), 0o700)
+	_ = os.MkdirAll(outside, 0o700)
+	_ = os.WriteFile(filepath.Join(dir, "sub", "vertrag.pdf"), []byte("%PDF eigen"), 0o600)
+	_ = os.WriteFile(filepath.Join(outside, "vertrag.pdf"), []byte("GEHEIM"), 0o600)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return dir, outside, root
+}
+
+func rootedRequest(dir string, root *os.Root) Request {
+	return Request{
+		Method: "POST", Path: "/api/documents/documents/bulk-upload",
+		Multipart: &Multipart{Files: []FilePart{{
+			Field: "files[]", Filename: "vertrag.pdf", Path: filepath.Join(dir, "sub", "vertrag.pdf"),
+			Root: root, Name: filepath.Join("sub", "vertrag.pdf"),
+		}}},
+	}
+}
+
+// swapForSymlink ersetzt dir/sub durch einen Symlink auf outside.
+func swapForSymlink(t *testing.T, dir, outside string) {
+	t.Helper()
+	if err := os.Rename(filepath.Join(dir, "sub"), filepath.Join(dir, "sub.alt")); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "sub")); err != nil {
+		t.Skipf("Symlinks nicht verfügbar: %v", err)
+	}
+}
+
+func TestRootedUploadSendsTheFile(t *testing.T) {
+	dir, _, root := rootedDataroom(t)
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseMultipartForm(1 << 20)
+		f, _ := r.MultipartForm.File["files[]"][0].Open()
+		raw, _ := io.ReadAll(f)
+		got = string(raw)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	if _, err := testClient(srv).Do(rootedRequest(dir, root)); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if got != "%PDF eigen" {
+		t.Errorf("Inhalt der eigenen Datei erwartet, got %q", got)
+	}
+}
+
+// TestRootedUploadRefusesSwappedParentDirectory: Wird ein Unterordner des
+// Datenraums zwischen Aufzählung und Senden durch einen Symlink nach außen
+// ersetzt, folgte Lstat dem Eltern-Symlink — os.Root verweigert das.
+func TestRootedUploadRefusesSwappedParentDirectory(t *testing.T) {
+	dir, outside, root := rootedDataroom(t)
+	swapForSymlink(t, dir, outside)
+	srv, calls := scripted(t, []int{200}, nil)
+	_, err := testClient(srv).Do(rootedRequest(dir, root))
+	localFileError(t, err, filepath.Join(dir, "sub", "vertrag.pdf"))
+	if atomic.LoadInt32(calls) != 0 {
+		t.Error("nichts von außerhalb senden")
+	}
+}
+
+func TestRootedUploadRefusesSwapBetweenLstatAndOpen(t *testing.T) {
+	dir, outside, root := rootedDataroom(t)
+	hookBeforeOpen = func(string) { swapForSymlink(t, dir, outside) }
+	defer func() { hookBeforeOpen = nil }()
+	srv, calls := scripted(t, []int{200}, nil)
+	_, err := testClient(srv).Do(rootedRequest(dir, root))
+	localFileError(t, err, filepath.Join(dir, "sub", "vertrag.pdf"))
+	if atomic.LoadInt32(calls) != 0 {
+		t.Error("nichts von außerhalb senden")
 	}
 }
