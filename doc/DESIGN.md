@@ -296,12 +296,14 @@ Boolesche Filter-Flags (`--vacant`) gehen als `true`/`false` in die Query:
 
 ### Befehle mit mehreren Aufrufen
 
-Einige Befehle sind mehr als ein Request: `units fields-get` holt Einheiten,
+Einige Befehle sind mehr als ein Request: `units import` sendet Stapel,
+`units fields-get` holt Einheiten,
 Feld-Definitionen und Werte und übersetzt Feld-IDs in Namen; `units
 fields-set` löst `extern_id` über die Einheitenliste auf und schreibt in
 Stapeln. `Method`/`Path` der Spec ist dann der Haupt-Request (er allein
-bestimmt das Risk des Escape-Hatch), `Calls` nennt die übrigen — sichtbar in
-`--help`, `docs` und `schema`.
+bestimmt das Risk des Escape-Hatch), `Calls` nennt die übrigen, `Notes` die
+Regeln, die nicht in eine Summary passen (Wiederholbarkeit, Teilerfolg) —
+sichtbar in `--help`, `docs` und `schema`.
 
 Zwei Regeln gelten für alle Stapel-Befehle:
 
@@ -311,6 +313,16 @@ Zwei Regeln gelten für alle Stapel-Befehle:
   `committed_batches`, `batch`, `batch_offset`; in `errors[]` zeigt `index`
   in die Eingabe (`batch_index` ist der Wert des Backends, `line` die Zeile).
   Die Meldung des Backends bleibt unverändert und zählt innerhalb des Stapels.
+
+`units import` liest NDJSON, ein JSON-Array oder CSV und schickt Stapel zu
+höchstens 500 an `POST …/units/bulk`. Die CSV-Spalten `livingspace`, `rooms`,
+`ist_rent`, `soll_rent`, `soll_rent2` und `order` werden Zahlen (mit
+`--decimal-comma` auch `1.250,50`), alles andere bleibt Text — eine `extern_id`
+„001" darf nicht zu `1` werden. Eine `extern_id`, die in der Datei doppelt
+steht, bricht vorab ab: Das Backend erkennt Duplikate nur innerhalb eines
+Stapels, über Stapel hinweg überschriebe der spätere Eintrag still den
+früheren. Ein Stapel gilt nur dann als idempotent (und wird wiederholt), wenn
+jede Zeile `id` oder `extern_id` trägt.
 
 `GET /api/custom-fields/values/batch` erlaubt laut Vertrag 1000 IDs, die
 Request-Zeile darf bei gunicorn aber nur 4094 Bytes lang sein — 1000 UUIDs
@@ -414,7 +426,7 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
   `context` list/use/current/delete
 - `contacts` list/get/create/update/set-status/delete/activities/immobilien
 - `immobilien` list/search/get/create/set-status/patch/delete/contacts/duplicate
-- `units` list/list-org/create/update/delete — die Listen mit Filtern
+- `units` list/list-org/create/update/delete/import — die Listen mit Filtern
   (`--type`, `--vacant`, `--extern-id`), `--limit`/`--offset` und `--all`;
   fields-get/fields-set für eigene Feldwerte vieler Einheiten (siehe unten)
 - `activities` list/get/for-immobilie/create/update/delete

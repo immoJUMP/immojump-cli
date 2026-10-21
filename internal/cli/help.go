@@ -131,6 +131,13 @@ func (r *runner) printCommandHelp(spec Spec) {
 		_ = w.Flush()
 	}
 
+	if len(spec.Notes) > 0 {
+		fmt.Fprintln(r.stdout, "\nDetails:")
+		for _, note := range spec.Notes {
+			fmt.Fprintf(r.stdout, "  - %s\n", note)
+		}
+	}
+
 	if hint := bodyHint(spec); hint != "" {
 		// Die Backticks sind für REFERENCE.md gedacht, im Terminal stören sie.
 		fmt.Fprintf(r.stdout, "\nBody: %s\n", strings.ReplaceAll(hint, "`", ""))

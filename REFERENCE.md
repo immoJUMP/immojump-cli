@@ -518,6 +518,7 @@ Einheiten einer Immobilie
 | --- | --- | --- |
 | `units list` | read | `GET /api/units/immobilie/{immobilie-id}/units` |
 | `units list-org` | read | `GET /api/units/organisation/{org}/units` |
+| `units import` | write | `POST /api/units/immobilie/{immobilie-id}/units/bulk` |
 | `units fields-get` | read | `GET /api/custom-fields/values/batch` |
 | `units fields-set` | write | `PUT /api/custom-fields/values/batch` |
 | `units create` | write | `POST /api/units/unit/{immobilie-id}` |
@@ -558,6 +559,33 @@ Einheiten der ganzen Organisation auflisten, jede mit immobilie_name (immer als 
   - `--vacant` — nur Leerstand (Ist-Miete 0 oder leer); --vacant=false nur vermietete
   - `--all` — alle Seiten holen (je 500, --limit ändert die Seitengröße) und als ein Array ausgeben
 - **Beispiel:** `immojump units list-org --vacant --all --fields immobilie_name,einheit,livingspace,soll_rent`
+
+#### units import
+
+Einheiten aus einer Mieterliste anlegen oder aktualisieren (in Stapeln, Abgleich über id bzw. extern_id)
+
+- **Aufruf:** `immojump units import <immobilie-id>`
+- **Endpoint:** `POST /api/units/immobilie/{immobilie-id}/units/bulk`
+- **Risk:** `write`
+- **Argumente:**
+  - `immobilie-id` — ID der Immobilie
+- **Flags:**
+  - `--file <wert>` — (Pflicht) Mieterliste: NDJSON (eine Einheit je Zeile), JSON-Array oder CSV; - liest stdin
+  - `--format <wert>` — ndjson, json oder csv (ohne Angabe: aus der Endung, bei stdin aus dem ersten Zeichen)
+  - `--batch-size <wert>` — Einheiten je Stapel (1–500, Default 500)
+  - `--dry-run` — nur prüfen und zählen, nichts speichern
+  - `--decimal-comma` — CSV: Zahlen mit Dezimalkomma (62,5 und 1.250,50)
+  - `--delimiter <wert>` — CSV-Trennzeichen ; oder , (ohne Angabe: das häufigere in der Kopfzeile)
+- **Body:** `{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).
+- **Details:**
+  - Felder je Einheit wie im Backend: extern_id, einheit, type, livingspace, rooms, ist_rent, soll_rent, soll_rent2, note, order, lease_start_date, last_rent_increase_date, id.
+  - Erneut ausführen ist sicher: Einheiten mit id oder extern_id werden wiedergefunden und nur geändert, was mitkommt. Zeilen ohne beides legt jeder Lauf neu an.
+  - Jeder Stapel ist für sich alles oder nichts. Scheitert Stapel k, sind die Stapel davor gespeichert (committed_batches in der Fehlerzeile); errors[].index zeigt in die Datei, line auf die Zeile. Nach der Korrektur einfach die ganze Datei erneut importieren.
+  - Eine extern_id, die in der Datei doppelt steht, bricht vor dem ersten Stapel ab (Exit 11).
+  - CSV: Kopfzeile aus den Feldnamen; leere Zelle = Feld weglassen; livingspace, rooms, ist_rent, soll_rent, soll_rent2 und order werden Zahlen, alles andere bleibt Text.
+  - --dry-run prüft jeden Stapel einzeln: Anlagen aus Stapel 1 sieht Stapel 2 dabei nicht.
+  - Stapel werden bei 429/502/503/504 und Netzwerkfehlern wiederholt (--retries), aber nur, wenn jede Zeile id oder extern_id trägt.
+- **Beispiel:** `immojump units import 5 --file mieter.ndjson --dry-run`
 
 #### units fields-get
 
