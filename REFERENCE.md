@@ -433,7 +433,9 @@ Eine Immobilie laden
 - **Risk:** `read`
 - **Argumente:**
   - `id` — ID der Immobilie
-- **Beispiel:** `immojump immobilien get 5`
+- **Flags:**
+  - `--exclude <wert>` — schwere Teile weglassen, kommagetrennt: units, dokumente (gemessen: 300 Einheiten ≈ 100 KB Antwort)
+- **Beispiel:** `immojump immobilien get 5 --exclude units,dokumente`
 
 #### immobilien create
 

@@ -44,6 +44,8 @@ func TestCommandRequestTable(t *testing.T) {
 		{name: "immobilien search", args: []string{"immobilien", "search", "-q", "q=Köln"},
 			method: "GET", path: "/api/v2/immobilien/search", query: url.Values{"q": {"Köln"}}},
 		{name: "immobilien get", args: []string{"immobilien", "get", "5"}, method: "GET", path: "/api/v2/immobilien/5"},
+		{name: "immobilien get --exclude", args: []string{"immobilien", "get", "5", "--exclude", "units,dokumente"},
+			method: "GET", path: "/api/v2/immobilien/5", query: url.Values{"exclude": {"units,dokumente"}}},
 		{name: "immobilien create", args: []string{"immobilien", "create", "--body", `{"name":"MFH"}`},
 			method: "POST", path: "/api/v2/immobilien", body: `{"name":"MFH"}`},
 		{name: "immobilien set-status", args: []string{"immobilien", "set-status", "5", "--status-id", "7"},

@@ -558,8 +558,13 @@ var Registry = []Spec{
 	{
 		Resource: "immobilien", Verb: "get", Risk: RiskRead,
 		Summary: "Eine Immobilie laden", Method: "GET", Path: "/api/v2/immobilien/{id}",
-		Args:    idArg("ID der Immobilie"),
-		Example: "immojump immobilien get 5",
+		Args: idArg("ID der Immobilie"),
+		Flags: []Flag{
+			{Name: "exclude", Kind: FlagString,
+				Desc: "schwere Teile weglassen, kommagetrennt: units, dokumente (gemessen: 300 Einheiten ≈ 100 KB Antwort)"},
+		},
+		Query:   []FlagQuery{{Flag: "exclude", Key: "exclude"}},
+		Example: "immojump immobilien get 5 --exclude units,dokumente",
 	},
 	{
 		Resource: "immobilien", Verb: "create", Risk: RiskWrite,
