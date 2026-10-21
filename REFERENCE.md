@@ -47,7 +47,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `--allow <wert>` | Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW) |
 | `--idempotency-key <wert>` | Wird als Idempotency-Key-Header mitgeschickt |
 | `--timeout <wert>` | Timeout je Request in Sekunden (Default 60, documents upload 300 je Stapel) |
-| `--retries <wert>` | Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); gilt für lesende Aufrufe, nie für Schreibbefehle |
+| `--retries <wert>` | Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); gilt für lesende Aufrufe und idempotente Stapel (units import mit id/extern_id, units fields-set, documents analyze mit mehreren IDs, analyze-all), nie für andere Schreibbefehle |
 | `--verbose` | Methode und aufgerufene URL vor dem Request auf stderr zeigen |
 | `--version` | Version ausgeben |
 | `--help` | Hilfe zur jeweiligen Ebene ausgeben |
@@ -1078,6 +1078,7 @@ Dokumente hochladen, analysieren, verwalten
 | `documents publish` | external | `POST /api/documents/documents/{id}/publish` |
 | `documents unpublish` | external | `POST /api/documents/documents/{id}/unpublish` |
 | `documents analyze` | write | `POST /api/documents/documents/{id}/analyze` |
+| `documents analyze-all` | write | `POST /api/documents/documents/{id}/analyze` |
 | `documents analyze-details` | write | `POST /api/documents/documents/{id}/analyze/details` |
 | `documents mark-reviewed` | write | `POST /api/documents/documents/{id}/mark-reviewed` |
 | `documents analysis-results` | read | `GET /api/documents/analysis-results` |
@@ -1195,15 +1196,41 @@ Veroeffentlichung eines HTML-Dokuments aufheben
 
 #### documents analyze
 
-KI-Analyse eines Dokuments starten
+KI-Analyse eines oder mehrerer Dokumente anstoßen (asynchron; Fortschritt über documents list --analysis-status)
 
-- **Aufruf:** `immojump documents analyze <id>`
+- **Aufruf:** `immojump documents analyze <id>...`
 - **Endpoint:** `POST /api/documents/documents/{id}/analyze`
 - **Risk:** `write`
 - **Argumente:**
-  - `id` — ID des Dokuments
+  - `id` (mehrfach) — ID des Dokuments, mehrere möglich
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
-- **Beispiel:** `immojump documents analyze 11`
+- **Details:**
+  - Mit einer ID: die Antwort des Backends unverändert, Fehler mit ihrem Exit-Code.
+  - Mit mehreren IDs: nacheinander, Ausgabe {queued: [ids], skipped: [{id, reason}], failed: [{id, status, message}]} wie bei analyze-all.
+- **Beispiel:** `immojump documents analyze 11 12 13`
+
+#### documents analyze-all
+
+KI-Analyse für alle passenden Dokumente einer Immobilie anstoßen (Default: noch nicht analysierte)
+
+- **Aufruf:** `immojump documents analyze-all`
+- **Endpoint:** `POST /api/documents/documents/{id}/analyze`
+- **Weitere Aufrufe:**
+  - `GET /api/documents/documents?immobilien_id=…&analysis_status=… (alle Seiten)`
+- **Risk:** `write`
+- **Flags:**
+  - `--immobilie-id <wert>` — (Pflicht) Dokumente dieser Immobilie
+  - `--analysis-status <wert>` — Analyse-Status: not_started, queued, processing, completed oder failed (Default not_started)
+  - `--category <wert>` — nur diese Dokumentart, z. B. mietvertrag
+  - `--unit-id <wert>` — nur Dokumente dieser Einheit
+- **Body:** je Dokument `{}` — die Auswahl kommt aus den Filter-Flags, nicht aus `--set`/`--body`.
+- **Details:**
+  - Ausgabe {listed, queued: [ids], skipped: [{id, reason}], failed: [{id, status, message}]}; Exit 0 nur ohne failed.
+  - 409 (schon vorgemerkt) zählt als skipped. Bei 429 wartet der Befehl (Retry-After, höchstens 30 s je Pause, --retries); bleibt das Limit, endet er mit Exit 7, die übrigen Dokumente stehen mit reason rate_limited unter skipped.
+  - 401 und 402 (KI-Kontingent erschöpft) beenden den Lauf; andere Fehler betreffen nur das eine Dokument.
+  - Erneut starten ist sicher: Default ist analysis_status=not_started, Vorgemerktes fällt heraus. Fortschritt: documents list --immobilie-id <id> --analysis-status processing --limit 1 --fields total (ebenso queued).
+  - Kosten begrenzt das KI-Kontingent des Plans — jede Analyse zählt.
+- **Beispiel:** `immojump documents analyze-all --immobilie-id 5 --category mietvertrag`
 
 #### documents analyze-details
 

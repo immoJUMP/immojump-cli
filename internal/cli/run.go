@@ -643,6 +643,12 @@ func (r *runner) runHTTP(spec Spec, args []string, flags *flagValues) int {
 	}
 
 	switch spec.Special {
+	case SpecialDocumentsAnalyze:
+		if len(args) > 1 {
+			return r.runDocumentsAnalyzeMany(spec, args, flags, resolved)
+		}
+	case SpecialDocumentsAnalyzeAll:
+		return r.runDocumentsAnalyzeAll(flags, resolved)
 	case SpecialDocumentsUpload:
 		return r.runDocumentsUpload(args, flags, resolved)
 	case SpecialUnitsImport:
