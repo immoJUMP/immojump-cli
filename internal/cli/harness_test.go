@@ -26,6 +26,8 @@ type recorded struct {
 	ContentType string
 	Header      http.Header
 	Multipart   *multipart.Form
+	// ContentLength ist -1 bei chunked Transfer (Länge unbekannt).
+	ContentLength int64
 }
 
 // reply ist eine vorbereitete Antwort für handle.
@@ -60,15 +62,16 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{t: t, status: 200, respond: `{"ok":true}`, respCT: "application/json"}
 	h.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &recorded{
-			Method:      r.Method,
-			Path:        r.URL.Path,
-			Query:       r.URL.Query(),
-			ContentType: r.Header.Get("Content-Type"),
-			Header:      r.Header.Clone(),
+			Method:        r.Method,
+			Path:          r.URL.Path,
+			Query:         r.URL.Query(),
+			ContentType:   r.Header.Get("Content-Type"),
+			Header:        r.Header.Clone(),
+			ContentLength: r.ContentLength,
 		}
 		mediaType, _, _ := mime.ParseMediaType(rec.ContentType)
 		if strings.HasPrefix(mediaType, "multipart/") {
-			if err := r.ParseMultipartForm(1 << 20); err == nil {
+			if err := r.ParseMultipartForm(32 << 20); err == nil {
 				rec.Multipart = r.MultipartForm
 			}
 		} else {

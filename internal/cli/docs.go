@@ -60,6 +60,7 @@ type schemaArg struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Optional    bool   `json:"optional,omitempty"`
+	Variadic    bool   `json:"variadic,omitempty"`
 }
 
 type schemaQueryHint struct {
@@ -94,7 +95,7 @@ type schemaCommand struct {
 func toSchemaCommand(spec Spec) schemaCommand {
 	args := []schemaArg{}
 	for _, arg := range spec.Args {
-		args = append(args, schemaArg{Name: arg.Name, Description: arg.Desc, Optional: arg.Optional})
+		args = append(args, schemaArg{Name: arg.Name, Description: arg.Desc, Optional: arg.Optional, Variadic: arg.Variadic})
 	}
 	flags := []schemaFlag{}
 	for _, flag := range spec.Flags {
@@ -311,6 +312,9 @@ func writeCommandSection(out *strings.Builder, spec Spec) {
 			suffix := ""
 			if arg.Optional {
 				suffix = " (optional)"
+			}
+			if arg.Variadic {
+				suffix += " (mehrfach)"
 			}
 			fmt.Fprintf(out, "  - `%s`%s — %s\n", arg.Name, suffix, arg.Desc)
 		}

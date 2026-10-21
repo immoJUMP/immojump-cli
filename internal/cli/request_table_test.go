@@ -618,6 +618,9 @@ func TestDocumentsUploadMultipart(t *testing.T) {
 	if got := h.last.Multipart.Value["allow_duplicate_upload"]; len(got) != 1 || got[0] != "true" {
 		t.Errorf("allow_duplicate_upload=true erwartet, got %v", got)
 	}
+	if got := h.last.Multipart.Value["report"]; len(got) != 1 || got[0] != "true" {
+		t.Errorf("report=true erwartet, got %v", got)
+	}
 }
 
 func TestDocumentsUploadOmitsOptionalFields(t *testing.T) {

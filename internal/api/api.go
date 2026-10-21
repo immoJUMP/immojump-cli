@@ -12,7 +12,10 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,11 +29,15 @@ const DefaultTimeout = 60 * time.Second
 // UserAgent identifiziert das CLI gegenüber dem Backend.
 var UserAgent = "immojump-cli"
 
-// FilePart ist eine Datei in einem Multipart-Upload.
+// FilePart ist eine Datei in einem Multipart-Upload. Mit Path wird die Datei
+// beim Senden von der Platte gestreamt (nie ganz im Speicher); Content ist
+// die Alternative für kleine Inhalte aus dem Speicher.
 type FilePart struct {
-	Field    string
-	Filename string
-	Content  []byte
+	Field       string
+	Filename    string
+	Content     []byte
+	Path        string
+	ContentType string
 }
 
 // Multipart beschreibt einen Upload aus Dateien plus Formfeldern.
@@ -372,26 +379,7 @@ func (c *Client) buildURL(req Request) (string, error) {
 
 func buildBody(req Request) (io.Reader, string, int64, error) {
 	if req.Multipart != nil {
-		buf := &bytes.Buffer{}
-		writer := multipart.NewWriter(buf)
-		for _, file := range req.Multipart.Files {
-			part, err := writer.CreateFormFile(file.Field, file.Filename)
-			if err != nil {
-				return nil, "", 0, fmt.Errorf("Multipart-Feld %s nicht baubar: %v", file.Field, err)
-			}
-			if _, err := part.Write(file.Content); err != nil {
-				return nil, "", 0, fmt.Errorf("Datei %s nicht schreibbar: %v", file.Filename, err)
-			}
-		}
-		for key, value := range req.Multipart.Fields {
-			if err := writer.WriteField(key, value); err != nil {
-				return nil, "", 0, fmt.Errorf("Formfeld %s nicht schreibbar: %v", key, err)
-			}
-		}
-		if err := writer.Close(); err != nil {
-			return nil, "", 0, fmt.Errorf("Multipart nicht abschließbar: %v", err)
-		}
-		return buf, writer.FormDataContentType(), int64(buf.Len()), nil
+		return multipartBody(req.Multipart)
 	}
 	if len(req.Body) == 0 {
 		return nil, "", -1, nil
@@ -401,6 +389,114 @@ func buildBody(req Request) (io.Reader, string, int64, error) {
 		contentType = "application/json"
 	}
 	return bytes.NewReader(req.Body), contentType, int64(len(req.Body)), nil
+}
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+// partHeader ist der Kopf eines Datei-Teils — mit Content-Type je Datei
+// (CreateFormFile setzte immer application/octet-stream).
+func partHeader(file FilePart) textproto.MIMEHeader {
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
+		quoteEscaper.Replace(file.Field), quoteEscaper.Replace(file.Filename)))
+	contentType := file.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	header.Set("Content-Type", contentType)
+	return header
+}
+
+// fileSize ist die Größe eines Datei-Teils, ohne ihn zu lesen.
+func fileSize(file FilePart) (int64, error) {
+	if file.Path == "" {
+		return int64(len(file.Content)), nil
+	}
+	info, err := os.Stat(file.Path)
+	if err != nil {
+		return 0, fmt.Errorf("Datei %s nicht lesbar: %v", file.Path, err)
+	}
+	return info.Size(), nil
+}
+
+// writeMultipart schreibt Formfelder (sortiert) und Dateien; copyFile füllt
+// den Inhalt einer Datei. Ein copyFile, der nichts schreibt, ergibt genau den
+// Rahmen — so entsteht die Content-Length vorab.
+func writeMultipart(w io.Writer, boundary string, m *Multipart, copyFile func(io.Writer, FilePart) error) error {
+	writer := multipart.NewWriter(w)
+	if err := writer.SetBoundary(boundary); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(m.Fields))
+	for key := range m.Fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := writer.WriteField(key, m.Fields[key]); err != nil {
+			return fmt.Errorf("Formfeld %s nicht schreibbar: %v", key, err)
+		}
+	}
+	for _, file := range m.Files {
+		part, err := writer.CreatePart(partHeader(file))
+		if err != nil {
+			return fmt.Errorf("Multipart-Feld %s nicht baubar: %v", file.Field, err)
+		}
+		if err := copyFile(part, file); err != nil {
+			return err
+		}
+	}
+	return writer.Close()
+}
+
+// countingWriter zählt nur Bytes.
+type countingWriter struct{ n int64 }
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	c.n += int64(len(p))
+	return len(p), nil
+}
+
+// multipartBody streamt den Upload über eine Pipe: Jede Datei wird erst beim
+// Senden von der Platte gelesen, nie komplett in den Speicher. Die Länge ist
+// trotzdem vorab bekannt (Rahmen + Dateigrößen) — kein chunked Transfer, den
+// manche Proxys ablehnen.
+func multipartBody(m *Multipart) (io.Reader, string, int64, error) {
+	boundary := multipart.NewWriter(io.Discard).Boundary()
+	var sizes int64
+	for _, file := range m.Files {
+		size, err := fileSize(file)
+		if err != nil {
+			return nil, "", 0, err
+		}
+		sizes += size
+	}
+	frame := &countingWriter{}
+	if err := writeMultipart(frame, boundary, m, func(io.Writer, FilePart) error { return nil }); err != nil {
+		return nil, "", 0, err
+	}
+	contentType := "multipart/form-data; boundary=" + boundary
+
+	reader, writer := io.Pipe()
+	go func() {
+		err := writeMultipart(writer, boundary, m, func(w io.Writer, file FilePart) error {
+			if file.Path == "" {
+				_, err := w.Write(file.Content)
+				return err
+			}
+			f, err := os.Open(file.Path)
+			if err != nil {
+				return &Error{Message: fmt.Sprintf("Datei %s nicht lesbar: %v", file.Path, err), Code: "LOCAL_FILE", Exit: 1}
+			}
+			defer func() { _ = f.Close() }()
+			if _, err := io.Copy(w, f); err != nil {
+				return &Error{Message: fmt.Sprintf("Datei %s nicht lesbar: %v", file.Path, err), Code: "LOCAL_FILE", Exit: 1}
+			}
+			return nil
+		})
+		_ = writer.CloseWithError(err)
+	}()
+	return reader, contentType, frame.n + sizes, nil
 }
 
 // maxRawSnippet begrenzt den Rohtext einer Nicht-JSON-Antwort.

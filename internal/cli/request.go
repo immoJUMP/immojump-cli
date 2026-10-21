@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -124,18 +123,6 @@ func (r *runner) buildRequest(spec Spec, args []string, flags *flagValues, resol
 	}
 
 	switch spec.Special {
-	case SpecialDocumentsUpload:
-		if resolved.Org == "" {
-			return nil, configErr(
-				"Für den Upload wird eine Organisation gebraucht. Setze IMMOJUMP_ORGANISATION_ID oder --org.")
-		}
-		multipart, err := buildUpload(args[0], flags, resolved.Org)
-		if err != nil {
-			return nil, err
-		}
-		request.Multipart = multipart
-		return request, nil
-
 	case SpecialPipelineImport:
 		// Die Import-Route liest die Organisation ausschließlich aus dem
 		// Payload oder dem Query-String — den Header X-Organisation-Id
@@ -622,23 +609,4 @@ func buildTagIDs(flags *flagValues) ([]byte, error) {
 		return nil, usageErr("Tag-IDs nicht serialisierbar: %v", err)
 	}
 	return body, nil
-}
-
-// buildUpload baut den Multipart-Body für documents upload.
-func buildUpload(path string, flags *flagValues, org string) (*api.Multipart, error) {
-	content, err := readFileOrErr(path)
-	if err != nil {
-		return nil, err
-	}
-	fields := map[string]string{"organisation_id": org}
-	if immobilie := strings.TrimSpace(flags.get("immobilie-id")); immobilie != "" {
-		fields["immobilien_id"] = immobilie
-	}
-	if flags.bool("allow-duplicate") {
-		fields["allow_duplicate_upload"] = "true"
-	}
-	return &api.Multipart{
-		Files:  []api.FilePart{{Field: "files[]", Filename: filepath.Base(path), Content: content}},
-		Fields: fields,
-	}, nil
 }
