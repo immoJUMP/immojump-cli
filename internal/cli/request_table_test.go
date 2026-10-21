@@ -186,6 +186,16 @@ func TestCommandRequestTable(t *testing.T) {
 
 		// --- documents ----------------------------------------------------
 		{name: "documents list", args: []string{"documents", "list"}, method: "GET", path: "/api/documents/documents"},
+		{name: "documents list gefiltert", args: []string{"documents", "list", "--immobilie-id", "5",
+			"--unit-id", "u-1", "--category", "mietvertrag", "--analysis-status", "not_started",
+			"--search", "Müller", "--limit", "20", "--offset", "40"},
+			method: "GET", path: "/api/documents/documents",
+			query: url.Values{"immobilien_id": {"5"}, "unit_id": {"u-1"}, "category": {"mietvertrag"},
+				"analysis_status": {"not_started"}, "q": {"Müller"}, "limit": {"20"}, "offset": {"40"}}},
+		{name: "documents set-unit", args: []string{"documents", "set-unit", "11", "--unit-id", "u-1"},
+			method: "PUT", path: "/api/documents/documents/11/unit", body: `{"unit_id":"u-1"}`},
+		{name: "documents set-unit --clear", args: []string{"documents", "set-unit", "11", "--clear"},
+			method: "PUT", path: "/api/documents/documents/11/unit", body: `{"unit_id":null}`},
 		// Das Backend liest new_filename (document_routes.py) — nicht name.
 		{name: "documents rename", args: []string{"documents", "rename", "11", "--name", "Exposé.pdf"},
 			method: "PUT", path: "/api/documents/documents/11/rename", body: `{"new_filename":"Exposé.pdf"}`},

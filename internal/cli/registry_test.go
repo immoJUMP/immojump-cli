@@ -308,7 +308,7 @@ func TestRegistryCoversDesignScope(t *testing.T) {
 		"pipelines":  {"list", "create", "get", "update", "delete", "statuses", "add-status", "export", "import"},
 		"statuses":   {"list", "update", "delete", "swap", "aliases", "add-alias"},
 		"templates":  {"list", "recurring", "by-status", "get", "create", "update", "delete", "batch-move"},
-		"documents":  {"list", "upload", "rename", "delete", "analyze", "analyze-details", "mark-reviewed", "analysis-results"},
+		"documents":  {"list", "upload", "rename", "set-unit", "delete", "analyze", "analyze-details", "mark-reviewed", "analysis-results"},
 		"tags":       {"list", "create", "update", "delete", "of", "set"},
 		"fields":     {"list", "create"},
 		"shares":     {"list", "create", "update", "revoke"},

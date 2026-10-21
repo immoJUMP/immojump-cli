@@ -433,7 +433,10 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
 - `pipelines` list/get/create/update/delete/statuses/add-status/export/import
 - `statuses` list/update/delete/swap/aliases/add-alias
 - `templates` list/recurring/by-status/get/create/update/delete/batch-move
-- `documents` list/upload/rename/delete/analyze/analyze-details/mark-reviewed/analysis-results
+- `documents` list/upload/rename/set-unit/delete/analyze/analyze-details/mark-reviewed/analysis-results
+  — `list` mit `--immobilie-id`, `--unit-id`, `--category`, `--analysis-status`,
+  `--search` (Query `q`; `--q` ginge nicht, `-q` ist das globale Query-Flag),
+  `--limit`/`--offset`/`--all`
 - `tags` list/create/update/delete/of/set
 - `fields` list/create — Definitionen benutzerdefinierter Felder
   (`/api/custom-fields/definitions`). Die Route liest `organisation_id` aus
