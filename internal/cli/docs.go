@@ -74,14 +74,16 @@ type schemaCommand struct {
 	// Risk ist "dynamic", wenn das Level erst pro Aufruf entsteht (api).
 	Risk string `json:"risk"`
 	// RiskRule erklärt dann, wie es entsteht.
-	RiskRule string       `json:"risk_rule,omitempty"`
-	Method   string       `json:"method,omitempty"`
-	Path     string       `json:"path,omitempty"`
-	Endpoint string       `json:"endpoint"`
-	Local    bool         `json:"local,omitempty"`
-	Raw      bool         `json:"raw,omitempty"`
-	Args     []schemaArg  `json:"args"`
-	Flags    []schemaFlag `json:"flags"`
+	RiskRule string `json:"risk_rule,omitempty"`
+	Method   string `json:"method,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Endpoint string `json:"endpoint"`
+	// Calls sind die weiteren Requests eines Befehls mit mehreren Aufrufen.
+	Calls []string     `json:"calls,omitempty"`
+	Local bool         `json:"local,omitempty"`
+	Raw   bool         `json:"raw,omitempty"`
+	Args  []schemaArg  `json:"args"`
+	Flags []schemaFlag `json:"flags"`
 	// QueryHints sind die Parameter, die die Route auswertet (per -q).
 	QueryHints []schemaQueryHint `json:"query_hints,omitempty"`
 	Example    string            `json:"example"`
@@ -113,6 +115,7 @@ func toSchemaCommand(spec Spec) schemaCommand {
 		Method:     spec.Method,
 		Path:       spec.Path,
 		Endpoint:   spec.Endpoint(),
+		Calls:      spec.Calls,
 		Local:      spec.Local,
 		Raw:        spec.Raw,
 		Args:       args,
@@ -289,6 +292,12 @@ func writeCommandSection(out *strings.Builder, spec Spec) {
 	fmt.Fprintf(out, "\n#### %s\n\n%s\n\n", spec.Name(), spec.Summary)
 	fmt.Fprintf(out, "- **Aufruf:** `%s`\n", spec.Usage())
 	fmt.Fprintf(out, "- **Endpoint:** `%s`\n", spec.Endpoint())
+	if len(spec.Calls) > 0 {
+		out.WriteString("- **Weitere Aufrufe:**\n")
+		for _, call := range spec.Calls {
+			fmt.Fprintf(out, "  - `%s`\n", call)
+		}
+	}
 	fmt.Fprintf(out, "- **Risk:** `%s`\n", spec.RiskLabel())
 	if rule := spec.RiskRule(); rule != "" {
 		fmt.Fprintf(out, "  - %s\n", rule)

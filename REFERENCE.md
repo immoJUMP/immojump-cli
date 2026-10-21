@@ -518,6 +518,8 @@ Einheiten einer Immobilie
 | --- | --- | --- |
 | `units list` | read | `GET /api/units/immobilie/{immobilie-id}/units` |
 | `units list-org` | read | `GET /api/units/organisation/{org}/units` |
+| `units fields-get` | read | `GET /api/custom-fields/values/batch` |
+| `units fields-set` | write | `PUT /api/custom-fields/values/batch` |
 | `units create` | write | `POST /api/units/unit/{immobilie-id}` |
 | `units update` | write | `PUT /api/units/unit/{unit-id}` |
 | `units delete` | destructive | `DELETE /api/units/unit/{unit-id}` |
@@ -556,6 +558,37 @@ Einheiten der ganzen Organisation auflisten, jede mit immobilie_name (immer als 
   - `--vacant` — nur Leerstand (Ist-Miete 0 oder leer); --vacant=false nur vermietete
   - `--all` — alle Seiten holen (je 500, --limit ändert die Seitengröße) und als ein Array ausgeben
 - **Beispiel:** `immojump units list-org --vacant --all --fields immobilie_name,einheit,livingspace,soll_rent`
+
+#### units fields-get
+
+Eigene Feldwerte aller Einheiten einer Immobilie: ein Array [{id, extern_id, einheit, values: {<Feldname>: wert}}] (Werte in Stapeln unter 3 KB Query)
+
+- **Aufruf:** `immojump units fields-get <immobilie-id>`
+- **Endpoint:** `GET /api/custom-fields/values/batch`
+- **Weitere Aufrufe:**
+  - `GET /api/units/immobilie/{immobilie-id}/units (alle Seiten)`
+  - `GET /api/custom-fields/definitions?model=unit (Feld-ID → Name)`
+- **Risk:** `read`
+- **Argumente:**
+  - `immobilie-id` — ID der Immobilie
+- **Beispiel:** `immojump units fields-get 5 --fields extern_id,values.Marktmiete`
+
+#### units fields-set
+
+Eigene Feldwerte vieler Einheiten setzen, je 500 ein PUT (extern_id → id über die Einheitenliste; null leert ein Feld)
+
+- **Aufruf:** `immojump units fields-set <immobilie-id>`
+- **Endpoint:** `PUT /api/custom-fields/values/batch`
+- **Weitere Aufrufe:**
+  - `GET /api/units/immobilie/{immobilie-id}/units (alle Seiten, extern_id → id)`
+- **Risk:** `write`
+- **Argumente:**
+  - `immobilie-id` — ID der Immobilie, zu der die Einheiten gehören
+- **Flags:**
+  - `--file <wert>` — (Pflicht) NDJSON oder JSON-Array, je Datensatz {"extern_id"|"id": …, "values": {"<Feldname oder Feld-ID>": wert}}; - liest stdin
+  - `--format <wert>` — ndjson oder json (ohne Angabe: aus der Endung, bei stdin aus dem ersten Zeichen)
+- **Body:** `{model: "unit", items: [{target_id, values}]}` in Stapeln zu 500, gebaut aus `--file` (NDJSON oder JSON-Array, je Datensatz `extern_id` oder `id` plus `values`).
+- **Beispiel:** `immojump units fields-set 5 --file marktmieten.ndjson`
 
 #### units create
 
