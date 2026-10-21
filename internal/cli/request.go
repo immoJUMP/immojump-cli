@@ -26,18 +26,19 @@ var shareEntityTypes = []struct{ Flag, Type string }{
 // nicht verarbeiten kann. Sie stillschweigend zu ignorieren wäre schlimmer als
 // ein Bedienfehler: Ein Agent hielte sein Feld für angekommen.
 var unsupportedGlobals = map[string][]string{
-	SpecialDocumentsUpload: {"set", "body"},
-	SpecialPipelineImport:  {"set", "body"},
-	SpecialTagsSet:         {"set", "body"},
-	SpecialUnitsImport:     {"q", "set", "body"},
-	SpecialUnitsFieldsGet:  {"q", "set", "body"},
-	SpecialUnitsFieldsSet:  {"q", "set", "body"},
-	SpecialAuthLogin:       {"q", "set", "body"},
-	SpecialAuthStatus:      {"q", "set", "body"},
-	SpecialContextList:     {"q", "set", "body"},
-	SpecialContextCurrent:  {"q", "set", "body"},
-	SpecialContextUse:      {"q", "set", "body"},
-	SpecialContextDelete:   {"q", "set", "body"},
+	SpecialDocumentsUpload:     {"set", "body"},
+	SpecialPipelineImport:      {"set", "body"},
+	SpecialTagsSet:             {"set", "body"},
+	SpecialUnitsImport:         {"q", "set", "body"},
+	SpecialDocumentsAnalyzeAll: {"q", "set", "body"},
+	SpecialUnitsFieldsGet:      {"q", "set", "body"},
+	SpecialUnitsFieldsSet:      {"q", "set", "body"},
+	SpecialAuthLogin:           {"q", "set", "body"},
+	SpecialAuthStatus:          {"q", "set", "body"},
+	SpecialContextList:         {"q", "set", "body"},
+	SpecialContextCurrent:      {"q", "set", "body"},
+	SpecialContextUse:          {"q", "set", "body"},
+	SpecialContextDelete:       {"q", "set", "body"},
 }
 
 // rejectsBodyFlags sagt, ob ein Befehl seinen Body komplett selbst baut.

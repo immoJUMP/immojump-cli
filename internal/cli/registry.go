@@ -41,23 +41,25 @@ const (
 
 // Special markiert Befehle, die der Dispatcher gesondert behandelt.
 const (
-	SpecialAPI             = "api"
-	SpecialAuthLogin       = "auth-login"
-	SpecialAuthStatus      = "auth-status"
-	SpecialContextList     = "context-list"
-	SpecialContextCurrent  = "context-current"
-	SpecialContextUse      = "context-use"
-	SpecialContextDelete   = "context-delete"
-	SpecialDocs            = "docs"
-	SpecialSchema          = "schema"
-	SpecialVersion         = "version"
-	SpecialSharesCreate    = "shares-create"
-	SpecialTagsSet         = "tags-set"
-	SpecialDocumentsUpload = "documents-upload"
-	SpecialPipelineImport  = "pipelines-import"
-	SpecialUnitsImport     = "units-import"
-	SpecialUnitsFieldsGet  = "units-fields-get"
-	SpecialUnitsFieldsSet  = "units-fields-set"
+	SpecialAPI                 = "api"
+	SpecialAuthLogin           = "auth-login"
+	SpecialAuthStatus          = "auth-status"
+	SpecialContextList         = "context-list"
+	SpecialContextCurrent      = "context-current"
+	SpecialContextUse          = "context-use"
+	SpecialContextDelete       = "context-delete"
+	SpecialDocs                = "docs"
+	SpecialSchema              = "schema"
+	SpecialVersion             = "version"
+	SpecialSharesCreate        = "shares-create"
+	SpecialTagsSet             = "tags-set"
+	SpecialDocumentsUpload     = "documents-upload"
+	SpecialPipelineImport      = "pipelines-import"
+	SpecialUnitsImport         = "units-import"
+	SpecialDocumentsAnalyze    = "documents-analyze"
+	SpecialDocumentsAnalyzeAll = "documents-analyze-all"
+	SpecialUnitsFieldsGet      = "units-fields-get"
+	SpecialUnitsFieldsSet      = "units-fields-set"
 )
 
 // APIRiskRule erklärt, wie der Escape-Hatch sein Risk-Level bekommt. Der Text
@@ -227,9 +229,10 @@ const defaultBodyHint = "`--body '<json>'`, `--body @datei` oder `--body -` (std
 var specialBodyHints = map[string]string{
 	SpecialDocumentsUpload: "Multipart-Upload im Feld `files[]` (gestreamt, je Datei mit Content-Type aus der Endung), " +
 		"dazu `organisation_id` aus der Konfiguration und `report=true`.",
-	SpecialPipelineImport: "YAML aus `--file` oder stdin (Content-Type `application/x-yaml`), Organisation als Query-Parameter.",
-	SpecialTagsSet:        "rohes JSON-Array der Tag-IDs, gebaut aus `--tag-ids`.",
-	SpecialUnitsImport:    "`{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).",
+	SpecialPipelineImport:      "YAML aus `--file` oder stdin (Content-Type `application/x-yaml`), Organisation als Query-Parameter.",
+	SpecialTagsSet:             "rohes JSON-Array der Tag-IDs, gebaut aus `--tag-ids`.",
+	SpecialDocumentsAnalyzeAll: "je Dokument `{}` — die Auswahl kommt aus den Filter-Flags, nicht aus `--set`/`--body`.",
+	SpecialUnitsImport:         "`{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).",
 	SpecialUnitsFieldsSet: "`{model: \"unit\", items: [{target_id, values}]}` in Stapeln zu 500, gebaut aus `--file` " +
 		"(NDJSON oder JSON-Array, je Datensatz `extern_id` oder `id` plus `values`).",
 }
@@ -354,7 +357,8 @@ var GlobalFlags = []Flag{
 	{Name: "idempotency-key", Kind: FlagString, Desc: "Wird als Idempotency-Key-Header mitgeschickt"},
 	{Name: "timeout", Kind: FlagString, Desc: "Timeout je Request in Sekunden (Default 60, documents upload 300 je Stapel)"},
 	{Name: "retries", Kind: FlagString, Desc: "Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); " +
-		"gilt für lesende Aufrufe, nie für Schreibbefehle"},
+		"gilt für lesende Aufrufe und idempotente Stapel (units import mit id/extern_id, units fields-set, " +
+		"documents analyze mit mehreren IDs, analyze-all), nie für andere Schreibbefehle"},
 	{Name: "verbose", Kind: FlagBool, Desc: "Methode und aufgerufene URL vor dem Request auf stderr zeigen"},
 	{Name: "version", Kind: FlagBool, Desc: "Version ausgeben"},
 	{Name: "help", Kind: FlagBool, Desc: "Hilfe zur jeweiligen Ebene ausgeben"},
@@ -1102,11 +1106,37 @@ var Registry = []Spec{
 		Example: "immojump documents unpublish 11",
 	},
 	{
-		Resource: "documents", Verb: "analyze", Risk: RiskWrite,
-		Summary: "KI-Analyse eines Dokuments starten",
+		Resource: "documents", Verb: "analyze", Risk: RiskWrite, Special: SpecialDocumentsAnalyze,
+		Summary: "KI-Analyse eines oder mehrerer Dokumente anstoßen (asynchron; Fortschritt über documents list --analysis-status)",
 		Method:  "POST", Path: "/api/documents/documents/{id}/analyze",
-		Args:    idArg("ID des Dokuments"),
-		Example: "immojump documents analyze 11",
+		Args: []Arg{{Name: "id", Desc: "ID des Dokuments, mehrere möglich", Variadic: true}},
+		Notes: []string{
+			"Mit einer ID: die Antwort des Backends unverändert, Fehler mit ihrem Exit-Code.",
+			"Mit mehreren IDs: nacheinander, Ausgabe {queued: [ids], skipped: [{id, reason}], failed: [{id, status, message}]} wie bei analyze-all.",
+		},
+		Example: "immojump documents analyze 11 12 13",
+	},
+	{
+		Resource: "documents", Verb: "analyze-all", Risk: RiskWrite, Special: SpecialDocumentsAnalyzeAll,
+		Summary: "KI-Analyse für alle passenden Dokumente einer Immobilie anstoßen (Default: noch nicht analysierte)",
+		Method:  "POST", Path: "/api/documents/documents/{id}/analyze",
+		Calls: []string{
+			"GET /api/documents/documents?immobilien_id=…&analysis_status=… (alle Seiten)",
+		},
+		Flags: []Flag{
+			{Name: "immobilie-id", Kind: FlagString, Required: true, Desc: "Dokumente dieser Immobilie"},
+			{Name: "analysis-status", Kind: FlagString, Desc: analysisStatusDesc + " (Default not_started)"},
+			{Name: "category", Kind: FlagString, Desc: "nur diese Dokumentart, z. B. mietvertrag"},
+			{Name: "unit-id", Kind: FlagString, Desc: "nur Dokumente dieser Einheit"},
+		},
+		Notes: []string{
+			"Ausgabe {listed, queued: [ids], skipped: [{id, reason}], failed: [{id, status, message}]}; Exit 0 nur ohne failed.",
+			"409 (schon vorgemerkt) zählt als skipped. Bei 429 wartet der Befehl (Retry-After, höchstens 30 s je Pause, --retries); bleibt das Limit, endet er mit Exit 7, die übrigen Dokumente stehen mit reason rate_limited unter skipped.",
+			"401 und 402 (KI-Kontingent erschöpft) beenden den Lauf; andere Fehler betreffen nur das eine Dokument.",
+			"Erneut starten ist sicher: Default ist analysis_status=not_started, Vorgemerktes fällt heraus. Fortschritt: documents list --immobilie-id <id> --analysis-status processing --limit 1 --fields total (ebenso queued).",
+			"Kosten begrenzt das KI-Kontingent des Plans — jede Analyse zählt.",
+		},
+		Example: "immojump documents analyze-all --immobilie-id 5 --category mietvertrag",
 	},
 	{
 		Resource: "documents", Verb: "analyze-details", Risk: RiskWrite,

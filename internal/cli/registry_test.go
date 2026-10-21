@@ -104,6 +104,11 @@ func TestRegistryInvariants(t *testing.T) {
 			if placeholder == "org" {
 				continue
 			}
+			if spec.Special != "" && len(spec.Calls) > 0 && len(spec.Args) == 0 {
+				// Befehle mit mehreren Aufrufen (analyze-all) füllen den
+				// Platzhalter aus einer Liste, nicht aus einem Argument.
+				continue
+			}
 			if !argNames[placeholder] {
 				t.Errorf("%q: Platzhalter {%s} ist weder durch ein Arg noch durch {org} gedeckt",
 					name, placeholder)
@@ -314,7 +319,7 @@ func TestRegistryCoversDesignScope(t *testing.T) {
 		"pipelines":  {"list", "create", "get", "update", "delete", "statuses", "add-status", "export", "import"},
 		"statuses":   {"list", "update", "delete", "swap", "aliases", "add-alias"},
 		"templates":  {"list", "recurring", "by-status", "get", "create", "update", "delete", "batch-move"},
-		"documents":  {"list", "upload", "rename", "set-unit", "delete", "analyze", "analyze-details", "mark-reviewed", "analysis-results"},
+		"documents":  {"list", "upload", "rename", "set-unit", "delete", "analyze", "analyze-all", "analyze-details", "mark-reviewed", "analysis-results"},
 		"tags":       {"list", "create", "update", "delete", "of", "set"},
 		"fields":     {"list", "create"},
 		"shares":     {"list", "create", "update", "revoke"},
