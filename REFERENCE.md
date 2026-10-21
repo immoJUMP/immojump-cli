@@ -1130,7 +1130,7 @@ Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei (eine einz
   - Ordner, mehrere Dateien oder --report: Ausgabe {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.
   - Exit 0 nur, wenn nichts fehlgeschlagen ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.
   - Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.
-  - Symbolische Links werden nie hochgeladen (im Ordner übersprungen, ausdrücklich genannt Exit 2). Beim Senden wird jede Datei ohne Symlink-Folgen geprüft (Lstat, Fstat, gleiche Datei); scheitert das, steht sie unter failed und der Rest des Stapels geht raus.
+  - Symbolische Links werden nie hochgeladen (im Ordner übersprungen, ausdrücklich genannt Exit 2). Beim Senden wird jede Datei innerhalb ihres Ordner-Arguments geöffnet (os.Root — kein Symlink und kein .. führt hinaus, auch kein nachträglich getauschter Unterordner) und geprüft (Lstat, Fstat, gleiche Datei); scheitert das, steht sie unter failed und der Rest des Stapels geht raus.
   - Dateien werden von der Platte gestreamt; Timeout je Stapel 300 s (OCR), --timeout ändert das.
   - Zwei Dateien mit gleichem Namen (nach secure_filename, ohne Endung und Groß-/Kleinschreibung) landen nie im selben Stapel — der Bericht des Backends nennt nur Namen; die zweite rückt in einen späteren Stapel.
   - Uploads werden nie automatisch wiederholt. Erneut ausführen ist dank Duplikat-Erkennung sicher: Schon Hochgeladenes landet unter duplicates (nicht mit --allow-duplicate).

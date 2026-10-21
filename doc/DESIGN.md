@@ -473,7 +473,10 @@ Spezialfälle: `documents upload` (Multipart `files[]` gegen
 `--batch-files`/`--batch-mb`, von der Platte gestreamt mit vorab berechneter
 Content-Length — die Länge stammt aus dem Fstat des schon geöffneten
 Deskriptors, und der muss dieselbe Datei sein wie das Lstat davor; ein
-zwischen Aufzählung und Senden untergeschobener Symlink fällt so auf,
+zwischen Aufzählung und Senden untergeschobener Symlink fällt so auf.
+Geöffnet wird über `os.Root` (je Ordner-Argument, bei einer einzelnen Datei
+ihr Ordner): Auch ein Unterordner, der zwischen zwei Stapeln durch einen
+Symlink nach außen ersetzt wird, führt nicht aus dem Datenraum heraus.
 Symlinks werden nie hochgeladen; `report=true` und Bericht `{uploaded, duplicates, failed,
 empty}` mit lokalem Pfad je Datei — Exit 0 nur ohne `failed`; gleichnamige
 Dateien nie im selben Stapel, weil der Bericht nur Namen nennt. **Eine

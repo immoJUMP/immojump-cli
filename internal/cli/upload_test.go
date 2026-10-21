@@ -554,3 +554,50 @@ func TestUploadReportForReportFlagFoldersAndSeveralFiles(t *testing.T) {
 		})
 	}
 }
+
+// TestUploadRefusesParentSwappedBetweenBatches: Während Stapel 1 läuft, wird
+// datenraum/sub durch einen Symlink auf einen fremden Ordner ersetzt. Stapel 2
+// darf dessen Dateien nicht senden — os.Root lässt den Datenraum nicht los.
+func TestUploadRefusesParentSwappedBetweenBatches(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "datenraum")
+	outside := filepath.Join(base, "fremd")
+	for path, content := range map[string]string{
+		filepath.Join(root, "a.pdf"): "A", filepath.Join(root, "sub", "b.pdf"): "B",
+		filepath.Join(outside, "b.pdf"): "GEHEIM",
+	} {
+		_ = os.MkdirAll(filepath.Dir(path), 0o700)
+		_ = os.WriteFile(path, []byte(content), 0o600)
+	}
+	h := newHarness(t)
+	b := &uploadBackend{}
+	sent := []string{}
+	h.handle = func(rec *recorded) reply {
+		for _, header := range rec.Multipart.File["files[]"] {
+			f, _ := header.Open()
+			raw := make([]byte, 16)
+			n, _ := f.Read(raw)
+			sent = append(sent, string(raw[:n]))
+		}
+		if len(b.batches) == 0 {
+			_ = os.Rename(filepath.Join(root, "sub"), filepath.Join(root, "sub.alt"))
+			if err := os.Symlink(outside, filepath.Join(root, "sub")); err != nil {
+				t.Skipf("Symlinks nicht verfügbar: %v", err)
+			}
+		}
+		return b.handle(rec)
+	}
+	code, stdout, _ := h.run("documents", "upload", root, "--recursive", "--batch-files", "1")
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d", code)
+	}
+	for _, content := range sent {
+		if content == "GEHEIM" {
+			t.Fatal("Inhalt von außerhalb des Datenraums wurde gesendet")
+		}
+	}
+	out := decodeUpload(t, stdout)
+	if len(out.Failed) != 1 || out.Failed[0].File != filepath.Join(root, "sub", "b.pdf") || !strings.Contains(out.Failed[0].Message, "außerhalb") {
+		t.Errorf("sub/b.pdf mit klarer Meldung unter failed erwartet, got %+v", out.Failed)
+	}
+}

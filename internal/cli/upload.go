@@ -30,10 +30,42 @@ const (
 // haben. Versteckte Dateien und Ordner (Punkt vorne) fallen ohnehin raus.
 var skippedNames = map[string]bool{"thumbs.db": true, "desktop.ini": true}
 
-// localFile ist eine Datei, die hochgeladen werden soll.
+// localFile ist eine Datei, die hochgeladen werden soll. root/rel öffnen sie
+// beim Senden innerhalb des Datenraums (os.Root), path ist der Name für
+// Bericht und Meldungen.
 type localFile struct {
 	path string
 	size int64
+	root *os.Root
+	rel  string
+}
+
+// uploadRoots hält je Ordner genau ein os.Root offen — für ein
+// Ordner-Argument der Ordner selbst, für eine einzelne Datei ihr Ordner.
+type uploadRoots struct {
+	byDir map[string]*os.Root
+}
+
+func (u *uploadRoots) open(dir string) (*os.Root, error) {
+	if u.byDir == nil {
+		u.byDir = map[string]*os.Root{}
+	}
+	key := filepath.Clean(dir)
+	if root, ok := u.byDir[key]; ok {
+		return root, nil
+	}
+	root, err := os.OpenRoot(key)
+	if err != nil {
+		return nil, usageErr("Ordner %s nicht lesbar: %v", dir, err)
+	}
+	u.byDir[key] = root
+	return root, nil
+}
+
+func (u *uploadRoots) close() {
+	for _, root := range u.byDir {
+		_ = root.Close()
+	}
 }
 
 func hiddenName(name string) bool {
@@ -43,10 +75,10 @@ func hiddenName(name string) bool {
 // collectFiles löst Dateien und Ordner auf. Ein Ordner liefert seine Dateien
 // (mit recursive auch die der Unterordner); versteckte Dateien und
 // Systemdateien bleiben weg — außer, sie sind ausdrücklich genannt.
-func collectFiles(args []string, recursive bool) ([]localFile, error) {
+func collectFiles(args []string, recursive bool, roots *uploadRoots) ([]localFile, error) {
 	var out []localFile
 	seen := map[string]bool{}
-	add := func(path string, size int64) {
+	add := func(path string, size int64, root *os.Root, rel string) {
 		key := filepath.Clean(path)
 		if abs, err := filepath.Abs(path); err == nil {
 			key = abs
@@ -55,7 +87,7 @@ func collectFiles(args []string, recursive bool) ([]localFile, error) {
 			return
 		}
 		seen[key] = true
-		out = append(out, localFile{path: path, size: size})
+		out = append(out, localFile{path: path, size: size, root: root, rel: rel})
 	}
 	for _, arg := range args {
 		info, err := os.Lstat(arg)
@@ -71,8 +103,16 @@ func collectFiles(args []string, recursive bool) ([]localFile, error) {
 			if !info.Mode().IsRegular() {
 				return nil, usageErr("%s ist keine normale Datei", arg)
 			}
-			add(arg, info.Size())
+			root, err := roots.open(filepath.Dir(arg))
+			if err != nil {
+				return nil, err
+			}
+			add(arg, info.Size(), root, filepath.Base(arg))
 			continue
+		}
+		root, err := roots.open(arg)
+		if err != nil {
+			return nil, err
 		}
 		err = filepath.WalkDir(arg, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
@@ -94,7 +134,11 @@ func collectFiles(args []string, recursive bool) ([]localFile, error) {
 			if err != nil {
 				return err
 			}
-			add(path, info.Size())
+			rel, err := filepath.Rel(arg, path)
+			if err != nil {
+				return err
+			}
+			add(path, info.Size(), root, rel)
 			return nil
 		})
 		if err != nil {
@@ -365,7 +409,9 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		}
 		maxMB = n
 	}
-	files, err := collectFiles(args, flags.bool("recursive"))
+	roots := &uploadRoots{}
+	defer roots.close()
+	files, err := collectFiles(args, flags.bool("recursive"), roots)
 	if err != nil {
 		return r.fail(err)
 	}
@@ -408,6 +454,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			IdempotencyKey: flags.get("idempotency-key"),
 			Multipart: &api.Multipart{Fields: fields, Files: []api.FilePart{{
 				Field: "files[]", Filename: filepath.Base(file.path), Path: file.path, ContentType: contentTypeFor(file.path),
+				Root: file.root, Name: file.rel,
 			}}},
 		})
 		if err != nil {
@@ -435,6 +482,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		for _, file := range batch {
 			parts = append(parts, api.FilePart{
 				Field: "files[]", Filename: filepath.Base(file.path), Path: file.path, ContentType: contentTypeFor(file.path),
+				Root: file.root, Name: file.rel,
 			})
 		}
 		// Uploads sind nicht idempotent (allow_duplicate, Archive) — der
