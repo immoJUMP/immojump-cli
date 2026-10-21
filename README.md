@@ -416,6 +416,88 @@ Nicht enthalten: der SSE-Stream (`GET /stream`) — eine langlaufende Verbindung
 passt nicht zum Ein-Request-Modell dieses CLI. Und `POST /uploads`, weil
 Anhänge im Feed einen eigenen Multipart-Weg brauchen.
 
+## Großbestand / Portfolio-Import
+
+Ein Portfolio-Ankauf mit 14 Häusern, 912 Einheiten aus einer Mieterliste und
+einem Datenraum mit ~1000 PDFs — von einem Agenten in immoJUMP geladen und
+ausgewertet. Jeder Schritt ist **wiederholbar**: Ein zweiter Lauf findet über
+`extern_id` (Einheiten) bzw. die Duplikat-Erkennung (Dokumente) wieder, was
+schon da ist, statt es zu verdoppeln.
+
+**Das Modell:** je Haus **eine** Immobilie (`MFH`/`WGH`) mit ihren
+Einheiten — nicht 912 ETWs. Der Plan `profi` erlaubt 200 aktive Immobilien;
+wer jede Einheit als eigenes Objekt anlegt, läuft hinein. Für mehr Häuser
+braucht es `enterprise`. `extern_id` trägt die Nummer des Verkäufers
+(z. B. `RH-01-WE-001`) und ist je Immobilie eindeutig.
+
+```bash
+# 0. Nur lesen/schreiben, nie löschen oder nach außen freigeben
+export IMMOJUMP_ALLOW=read,write
+
+# 1. Ein Haus anlegen (14-mal, je Haus eine Immobilie) — id merken
+ID=$(immojump immobilien create --type MFH \
+      --set name='Rheinhöfe Haus 1' --set daten.adresse='Rheinstr. 1, 50667 Köln' \
+      --fields id | jq -r .id)
+
+# 2. Mieterliste importieren: NDJSON, eine Einheit je Zeile, Feldnamen wie im Backend
+#    {"extern_id":"RH-01-WE-001","einheit":"WE 001 EG links","type":"wohnen",
+#     "livingspace":62.5,"rooms":2,"ist_rent":540,"soll_rent":610,"lease_start_date":"2019-04-01"}
+immojump units import "$ID" --file mieter-haus-01.ndjson --dry-run   # prüfen, nichts speichern
+immojump units import "$ID" --file mieter-haus-01.ndjson             # Stapel zu 500, eine Summe
+#    CSV geht auch: Kopfzeile = Feldnamen, deutsche Zahlen mit --decimal-comma
+immojump units import "$ID" --file mieter-haus-01.csv --decimal-comma
+
+# 3. Eigene Analysewerte je Einheit: Feld einmal anlegen (Admin), dann in Stapeln setzen
+immojump fields create --model unit --name Marktmiete --type number
+#    marktmieten.ndjson: {"extern_id":"RH-01-WE-001","values":{"Marktmiete":13.5}}
+immojump units fields-set "$ID" --file marktmieten.ndjson
+immojump units fields-get "$ID" --fields extern_id,values.Marktmiete
+
+# 4. Datenraum hochladen: ein Ordner je Haus, Unterordner mit --recursive
+immojump documents upload datenraum/haus-01 --recursive --immobilie-id "$ID"
+#    Mietverträge direkt an ihre Einheit, wo bekannt (Einheit derselben Immobilie)
+UNIT=$(immojump units list "$ID" --extern-id RH-01-WE-001 --limit 1 --fields items.id | jq -r '.items[0].id')
+immojump documents upload datenraum/haus-01/mietvertraege/WE-001.pdf \
+  --immobilie-id "$ID" --unit-id "$UNIT" --category mietvertrag
+#    nachträglich zuordnen geht auch
+immojump documents set-unit <dokument-id> --unit-id "$UNIT"
+
+# 5. Alle noch nicht analysierten Dokumente analysieren lassen (taktet bei 429)
+immojump documents analyze-all --immobilie-id "$ID"
+
+# 6. Fortschritt abfragen: nur die Zahl, nicht die Liste
+immojump documents list --immobilie-id "$ID" --analysis-status queued --limit 1 --fields total
+immojump documents list --immobilie-id "$ID" --analysis-status processing --limit 1 --fields total
+
+# 7. Auswerten über alle 14 Häuser: Leerstand mit Fläche und Soll-Miete
+immojump units list-org --vacant --all --fields immobilie_name,extern_id,einheit,livingspace,soll_rent
+#    Die Immobilie selbst ohne die schweren Teile
+immojump immobilien get "$ID" --exclude units,dokumente
+```
+
+Was dabei zu wissen ist:
+
+- **`units import`** gibt eine Summe aus (`created`, `updated`, `unchanged`,
+  `placeholder_removed`, `batches`, `items`). Die leere Start-„Einheit 1“ einer
+  neuen Immobilie entfernt das Backend, sobald der Import Einheiten anlegt.
+  Jeder Stapel ist für sich alles oder nichts; scheitert Stapel *k* (Exit 11),
+  sind die Stapel davor gespeichert (`committed_batches` in der Fehlerzeile),
+  und `errors[].index`/`line` zeigen in die Datei. Korrigieren, die ganze Datei
+  erneut importieren. Eine `extern_id`, die in der Datei doppelt steht, bricht
+  vor dem ersten Stapel ab.
+- **`documents upload`** berichtet je Datei:
+  `{uploaded: [{id, dateiname, file}], duplicates, failed: [{file, message}], empty}`.
+  Exit 0 nur ohne `failed`; sonst Exit 1, der Bericht steht trotzdem auf stdout.
+  Uploads werden nie automatisch wiederholt — erneut ausführen ist sicher,
+  Schon-Hochgeladenes landet unter `duplicates`.
+- **`documents analyze-all`** gibt `{listed, queued, skipped, failed}` aus.
+  Bleibt das Rate Limit, endet es mit Exit 7, die übrigen Dokumente stehen mit
+  `reason: rate_limited` unter `skipped` — später einfach erneut starten. Jede
+  Analyse zählt aufs KI-Kontingent des Plans.
+- **`--all`** holt alle Seiten (je 500) und gibt ein Array aus; `--fields`
+  wirkt auf dessen Elemente. Lesende Aufrufe wiederholen sich bei 429/5xx
+  selbst (siehe Exit-Codes).
+
 ## Sicherheit
 
 **Base-URL-Allowlist.** Tokens gehen nur an bekannte immoJUMP-Instanzen —
