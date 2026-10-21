@@ -58,9 +58,14 @@ func collectFiles(args []string, recursive bool) ([]localFile, error) {
 		out = append(out, localFile{path: path, size: size})
 	}
 	for _, arg := range args {
-		info, err := os.Stat(arg)
+		info, err := os.Lstat(arg)
 		if err != nil {
 			return nil, usageErr("%s nicht lesbar: %v", arg, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			// Symlinks werden nie hochgeladen: Ihr Ziel kann außerhalb des
+			// Datenraums liegen und sich bis zum Senden ändern.
+			return nil, usageErr("%s ist ein symbolischer Link — bitte das Ziel selbst angeben", arg)
 		}
 		if !info.IsDir() {
 			if !info.Mode().IsRegular() {
@@ -263,13 +268,30 @@ func continuesAfter(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return false
 	}
-	if apiErr.Code == "LOCAL_FILE" {
+	if apiErr.Code == "LOCAL_FILE" || apiErr.Code == "LOCAL_FILE_CHANGED" {
 		return true
 	}
 	if apiErr.Exit != 0 {
 		return false
 	}
 	return apiErr.Status == 0 || apiErr.Status >= 500 || apiErr.Status == 413
+}
+
+// dropLocalFile erkennt den Fehler „diese eine Datei ist vor dem Senden
+// gescheitert" (LOCAL_FILE mit Pfad) und liefert sie samt Rest des Stapels.
+func dropLocalFile(err error, batch []localFile) (*localFile, []localFile) {
+	var apiErr *api.Error
+	if err == nil || !errors.As(err, &apiErr) || apiErr.Code != "LOCAL_FILE" {
+		return nil, nil
+	}
+	path, _ := apiErr.Details["file"].(string)
+	for j, file := range batch {
+		if file.path == path {
+			rest := append(append([]localFile{}, batch[:j]...), batch[j+1:]...)
+			return &batch[j], rest
+		}
+	}
+	return nil, nil
 }
 
 // abortedUpload ergänzt den Abbruch im ersten von mehreren Stapeln um die
@@ -355,7 +377,11 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			report.Failed = append(report.Failed, failedFile{File: file.path, Message: message})
 		}
 	}
-	for i, batch := range batches {
+	for i := 0; i < len(batches); i++ {
+		batch := batches[i]
+		if len(batch) == 0 {
+			continue
+		}
 		parts := make([]api.FilePart, 0, len(batch))
 		for _, file := range batch {
 			parts = append(parts, api.FilePart{
@@ -369,6 +395,14 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			IdempotencyKey: flags.get("idempotency-key"),
 			Multipart:      &api.Multipart{Files: parts, Fields: fields},
 		})
+		if dropped, rest := dropLocalFile(err, batch); dropped != nil {
+			// Die Datei scheiterte vor dem Senden (kein Request ging raus):
+			// aussortieren, den Rest des Stapels erneut versuchen.
+			report.Failed = append(report.Failed, failedFile{File: dropped.path, Message: err.Error()})
+			batches[i] = rest
+			i--
+			continue
+		}
 		if err != nil {
 			if len(batches) == 1 {
 				// Ein Stapel verhält sich wie ein einzelner Request: Fehler

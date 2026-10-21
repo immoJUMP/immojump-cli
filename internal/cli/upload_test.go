@@ -388,3 +388,53 @@ func TestUploadAbortOnFirstBatchNamesWhatWasNotSent(t *testing.T) {
 		t.Errorf("Backend-Meldung unverändert erwartet, got %q", line["message"])
 	}
 }
+
+func TestUploadRejectsSymlinks(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "geheim.txt": "G"})
+	link := filepath.Join(root, "link.pdf")
+	if err := os.Symlink(filepath.Join(root, "geheim.txt"), link); err != nil {
+		t.Skipf("Symlinks nicht verfügbar: %v", err)
+	}
+	h := newHarness(t)
+	code, _, stderr := h.run("documents", "upload", link)
+	if code != 2 || h.last != nil {
+		t.Errorf("ausdrücklich genannter Symlink: Exit 2 ohne Request erwartet, got %d (%s)", code, stderr)
+	}
+	h2 := newHarness(t)
+	b := &uploadBackend{}
+	h2.handle = b.handle
+	if code, _, stderr := h2.run("documents", "upload", root); code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	if fmt.Sprint(b.batches) != "[[a.pdf geheim.txt]]" {
+		t.Errorf("Symlink im Ordner soll übersprungen werden, got %v", b.batches)
+	}
+}
+
+// TestUploadDropsUnreadableFileAndSendsTheRest: Scheitert eine Datei an der
+// Prüfung vor dem Senden, geht kein Request raus — sie landet unter failed,
+// der Rest des Stapels wird gesendet.
+func TestUploadDropsUnreadableFileAndSendsTheRest(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("als root sind Dateirechte wirkungslos")
+	}
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B"})
+	if err := os.Chmod(filepath.Join(root, "a.pdf"), 0o000); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	defer func() { _ = os.Chmod(filepath.Join(root, "a.pdf"), 0o600) }()
+	h := newHarness(t)
+	b := &uploadBackend{}
+	h.handle = b.handle
+	code, stdout, _ := h.run("documents", "upload", root)
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d", code)
+	}
+	if fmt.Sprint(b.batches) != "[[b.pdf]]" {
+		t.Errorf("nur b.pdf gesendet erwartet, got %v", b.batches)
+	}
+	out := decodeUpload(t, stdout)
+	if len(out.Failed) != 1 || out.Failed[0].File != filepath.Join(root, "a.pdf") || len(out.Uploaded) != 1 {
+		t.Errorf("a.pdf unter failed, b.pdf hochgeladen erwartet, got %+v", out)
+	}
+}
