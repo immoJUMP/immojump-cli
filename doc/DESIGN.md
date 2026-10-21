@@ -324,10 +324,11 @@ Stapels, über Stapel hinweg überschriebe der spätere Eintrag still den
 früheren. Ein Stapel gilt nur dann als idempotent (und wird wiederholt), wenn
 jede Zeile `id` oder `extern_id` trägt.
 
-`GET /api/custom-fields/values/batch` erlaubt laut Vertrag 1000 IDs, die
-Request-Zeile darf bei gunicorn aber nur 4094 Bytes lang sein — 1000 UUIDs
-sind ~37 KB. Das CLI teilt deshalb zusätzlich nach Länge (Query unter 3 KB,
-gut 70 IDs je Aufruf).
+`units fields-get` liest die Werte per `POST /api/custom-fields/values/batch/read`
+mit den IDs im Body (je 1000). Die GET-Variante mit `target_ids` in der Query
+scheitert an gunicorns `limit_request_line` (4094 Bytes): 1000 UUIDs sind
+~37 KB. Der POST liest nur — er trägt Risk `read` (auch über den Escape-Hatch)
+und wird wie ein GET wiederholt.
 
 ### Wiederholungen: nur, wo sie nichts verdoppeln
 

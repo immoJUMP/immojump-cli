@@ -521,7 +521,7 @@ Einheiten einer Immobilie
 | `units list` | read | `GET /api/units/immobilie/{immobilie-id}/units` |
 | `units list-org` | read | `GET /api/units/organisation/{org}/units` |
 | `units import` | write | `POST /api/units/immobilie/{immobilie-id}/units/bulk` |
-| `units fields-get` | read | `GET /api/custom-fields/values/batch` |
+| `units fields-get` | read | `POST /api/custom-fields/values/batch/read` |
 | `units fields-set` | write | `PUT /api/custom-fields/values/batch` |
 | `units create` | write | `POST /api/units/unit/{immobilie-id}` |
 | `units update` | write | `PUT /api/units/unit/{unit-id}` |
@@ -591,16 +591,17 @@ Einheiten aus einer Mieterliste anlegen oder aktualisieren (in Stapeln, Abgleich
 
 #### units fields-get
 
-Eigene Feldwerte aller Einheiten einer Immobilie: ein Array [{id, extern_id, einheit, values: {<Feldname>: wert}}] (Werte in Stapeln unter 3 KB Query)
+Eigene Feldwerte aller Einheiten einer Immobilie: ein Array [{id, extern_id, einheit, values: {<Feldname>: wert}}]
 
 - **Aufruf:** `immojump units fields-get <immobilie-id>`
-- **Endpoint:** `GET /api/custom-fields/values/batch`
+- **Endpoint:** `POST /api/custom-fields/values/batch/read`
 - **Weitere Aufrufe:**
   - `GET /api/units/immobilie/{immobilie-id}/units (alle Seiten)`
   - `GET /api/custom-fields/definitions?model=unit (Feld-ID → Name)`
 - **Risk:** `read`
 - **Argumente:**
   - `immobilie-id` — ID der Immobilie
+- **Body:** `{model: "unit", target_ids: [...]}` je 1000 Einheiten — ein POST, der nur liest (Risk read).
 - **Beispiel:** `immojump units fields-get 5 --fields extern_id,values.Marktmiete`
 
 #### units fields-set

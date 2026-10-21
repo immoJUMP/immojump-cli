@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,9 +27,17 @@ func (b *fieldsBackend) handle(rec *recorded) reply {
 		return reply{body: fmt.Sprintf(`{"items":[%s],"total":%d,"limit":500,"offset":0}`, strings.Join(items, ","), len(b.units))}
 	case rec.Path == "/api/custom-fields/definitions":
 		return reply{body: `{"definitions":[{"id":"d1","name":"Marktmiete","type":"number"},{"id":"d2","name":"Sanierung","type":"boolean"}]}`}
-	case rec.Path == "/api/custom-fields/values/batch" && rec.Method == "GET":
+	case rec.Path == "/api/custom-fields/values/batch/read" && rec.Method == "POST":
+		var payload struct {
+			Model     string   `json:"model"`
+			TargetIDs []string `json:"target_ids"`
+		}
+		_ = json.Unmarshal([]byte(rec.Body), &payload)
+		if payload.Model != "unit" || len(payload.TargetIDs) == 0 || len(payload.TargetIDs) > 1000 {
+			return reply{status: 400, body: `{"message":"falscher Lese-Body"}`}
+		}
 		out := map[string]any{}
-		for _, id := range strings.Split(rec.Query.Get("target_ids"), ",") {
+		for _, id := range payload.TargetIDs {
 			if v, ok := b.values[id]; ok {
 				out[id] = v
 			} else {
@@ -87,54 +94,67 @@ func TestUnitsFieldsGetMapsDefinitionIDsToNames(t *testing.T) {
 	if len(defs) != 1 || defs[0].Query.Get("organisation_id") != "org-test" || defs[0].Query.Get("model") != "unit" {
 		t.Errorf("Definitionen mit organisation_id und model=unit erwartet, got %v", defs)
 	}
-	vals := requestsTo(h, "GET", "/api/custom-fields/values/batch")
-	if len(vals) != 1 || vals[0].Query.Get("model") != "unit" || vals[0].Query.Get("target_ids") != "u0,u1,u2" {
-		t.Errorf("ein Werte-Aufruf mit model=unit&target_ids=u0,u1,u2 erwartet, got %v", vals)
+	vals := requestsTo(h, "POST", "/api/custom-fields/values/batch/read")
+	if len(vals) != 1 || !sameJSON(t, vals[0].Body, `{"model":"unit","target_ids":["u0","u1","u2"]}`) {
+		t.Errorf("ein Lese-POST mit model und target_ids im Body erwartet, got %v", vals)
+	}
+	if len(vals) == 1 && len(vals[0].Query) != 0 {
+		t.Errorf("die IDs gehören in den Body, nicht in die Query: %v", vals[0].Query)
 	}
 }
 
-// TestUnitsFieldsGetChunksTargetIDs: 1000 UUIDs in der Query wären ~37 KB —
-// gunicorn lehnt Request-Zeilen über 4094 Bytes ab. Die Stapel bleiben
-// deshalb auch unter einer Längengrenze.
-func TestUnitsFieldsGetChunksTargetIDs(t *testing.T) {
+// TestUnitsFieldsGetChunksByThousand: Die Lese-Route nimmt höchstens 1000
+// IDs je Aufruf — im Body, damit die Request-Zeile kurz bleibt.
+func TestUnitsFieldsGetChunksByThousand(t *testing.T) {
 	h := newHarness(t)
 	b := &fieldsBackend{}
-	for i := 0; i < 912; i++ {
+	for i := 0; i < 2500; i++ {
 		b.units = append(b.units, fmt.Sprintf("00000000-0000-4000-8000-%012d", i))
 	}
 	h.handle = b.handle
-	pages := 0
-	inner := h.handle
-	h.handle = func(rec *recorded) reply {
-		if strings.HasPrefix(rec.Path, "/api/units/immobilie/") {
-			pages++
-		}
-		return inner(rec)
-	}
 	code, stdout, stderr := h.run("units", "fields-get", "5")
 	if code != 0 {
 		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
 	}
-	vals := requestsTo(h, "GET", "/api/custom-fields/values/batch")
-	if len(vals) < 2 {
-		t.Fatalf("mehrere Werte-Aufrufe erwartet, got %d", len(vals))
-	}
-	seen := 0
-	for _, rec := range vals {
-		ids := strings.Split(rec.Query.Get("target_ids"), ",")
-		seen += len(ids)
-		if len(ids) > 1000 {
-			t.Errorf("höchstens 1000 IDs je Aufruf erwartet, got %d", len(ids))
+	sizes := []int{}
+	for _, rec := range requestsTo(h, "POST", "/api/custom-fields/values/batch/read") {
+		var payload struct {
+			TargetIDs []string `json:"target_ids"`
 		}
-		if n := len(url.Values{"target_ids": {strings.Join(ids, ",")}}.Encode()); n > 3500 {
-			t.Errorf("Query zu lang für gunicorn: %d Bytes", n)
+		_ = json.Unmarshal([]byte(rec.Body), &payload)
+		sizes = append(sizes, len(payload.TargetIDs))
+	}
+	if fmt.Sprint(sizes) != "[1000 1000 500]" {
+		t.Errorf("Stapel 1000/1000/500 erwartet, got %v", sizes)
+	}
+	if items := decodeArray(t, stdout); len(items) != 2500 {
+		t.Errorf("2500 Zeilen erwartet, got %d", len(items))
+	}
+}
+
+// TestUnitsFieldsGetRetriesTheReadPOST: Der POST liest nur — Wiederholen ist
+// sicher, und als read darf er auch unter --readonly laufen.
+func TestUnitsFieldsGetRetriesTheReadPOST(t *testing.T) {
+	h := newHarness(t)
+	b := &fieldsBackend{units: []string{"u0"}}
+	calls := 0
+	h.handle = func(rec *recorded) reply {
+		if rec.Path == "/api/custom-fields/values/batch/read" {
+			calls++
+			if calls == 1 {
+				return reply{status: 503, body: `{"message":"kurz weg"}`}
+			}
 		}
+		return b.handle(rec)
 	}
-	if seen != 912 {
-		t.Errorf("alle 912 Einheiten abgefragt erwartet, got %d", seen)
+	if code, _, stderr := h.run("--readonly", "units", "fields-get", "5"); code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
 	}
-	if items := decodeArray(t, stdout); len(items) != 912 {
-		t.Errorf("912 Zeilen erwartet, got %d", len(items))
+	if calls != 2 {
+		t.Errorf("zwei Lese-Versuche erwartet, got %d", calls)
+	}
+	if risk := riskForAPI("POST", "/api/custom-fields/values/batch/read"); risk != RiskRead {
+		t.Errorf("api POST …/values/batch/read soll read sein, got %q", risk)
 	}
 }
 
@@ -146,7 +166,7 @@ func TestUnitsFieldsGetEmptyHouse(t *testing.T) {
 	if code != 0 || strings.TrimSpace(stdout) != "[]" {
 		t.Fatalf("leeres Array erwartet, got %d %q", code, stdout)
 	}
-	if len(requestsTo(h, "GET", "/api/custom-fields/values/batch")) != 0 {
+	if len(requestsTo(h, "POST", "/api/custom-fields/values/batch/read")) != 0 {
 		t.Error("ohne Einheiten kein Werte-Aufruf erwartet")
 	}
 }
