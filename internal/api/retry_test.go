@@ -324,3 +324,26 @@ func TestMultipartMissingFileIsLocalError(t *testing.T) {
 		t.Error("ohne Datei kein Request")
 	}
 }
+
+// TestRateLimitOnlyRetriesJust429: Ein 429 beweist, dass nichts passiert
+// ist — ein 5xx oder Netzwerkfehler nicht. Für Aufrufe, die eine Analyse
+// (und damit KI-Kontingent) auslösen, gilt deshalb nur 429 als wiederholbar.
+func TestRateLimitOnlyRetriesJust429(t *testing.T) {
+	srv, calls := scripted(t, []int{429, 202}, nil)
+	var sleeps []time.Duration
+	if _, err := retryClient(srv, &sleeps).Do(Request{Method: "POST", Path: "/api/x", Body: []byte(`{}`), RetryRateLimit: true}); err != nil {
+		t.Fatalf("429 soll wiederholt werden: %v", err)
+	}
+	if atomic.LoadInt32(calls) != 2 {
+		t.Errorf("zwei Versuche erwartet, got %d", *calls)
+	}
+	for _, status := range []int{502, 503, 504} {
+		srv, calls := scripted(t, []int{status, 202}, nil)
+		if _, err := retryClient(srv, &sleeps).Do(Request{Method: "POST", Path: "/api/x", Body: []byte(`{}`), RetryRateLimit: true}); err == nil {
+			t.Fatalf("%d: Fehler ohne Wiederholung erwartet", status)
+		}
+		if atomic.LoadInt32(calls) != 1 {
+			t.Errorf("%d: genau ein Versuch erwartet, got %d", status, *calls)
+		}
+	}
+}

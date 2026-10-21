@@ -358,8 +358,8 @@ var GlobalFlags = []Flag{
 	{Name: "idempotency-key", Kind: FlagString, Desc: "Wird als Idempotency-Key-Header mitgeschickt"},
 	{Name: "timeout", Kind: FlagString, Desc: "Timeout je Request in Sekunden (Default 60, documents upload 300 je Stapel)"},
 	{Name: "retries", Kind: FlagString, Desc: "Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); " +
-		"gilt für lesende Aufrufe und idempotente Stapel (units import mit id/extern_id, units fields-set, " +
-		"documents analyze mit mehreren IDs, analyze-all), nie für andere Schreibbefehle"},
+		"gilt für lesende Aufrufe und idempotente Stapel (units import mit id/extern_id, units fields-set); " +
+		"documents analyze/analyze-all warten nur ein 429 ab; andere Schreibbefehle nie"},
 	{Name: "verbose", Kind: FlagBool, Desc: "Methode und aufgerufene URL vor dem Request auf stderr zeigen"},
 	{Name: "version", Kind: FlagBool, Desc: "Version ausgeben"},
 	{Name: "help", Kind: FlagBool, Desc: "Hilfe zur jeweiligen Ebene ausgeben"},
@@ -1138,6 +1138,7 @@ var Registry = []Spec{
 		Notes: []string{
 			"Ausgabe {listed, queued: [ids], skipped: [{id, reason}], failed: [{id, status, message}]}; Exit 0 nur ohne failed.",
 			"409 (schon vorgemerkt) zählt als skipped. Bei 429 wartet der Befehl (Retry-After, höchstens 30 s je Pause, --retries); bleibt das Limit, endet er mit Exit 7, die übrigen Dokumente stehen mit reason rate_limited unter skipped.",
+			"Nach 5xx oder Netzwerkfehler wird NICHT wiederholt — die Analyse kann angekommen sein; das Dokument steht unter failed, sein Stand steht in documents list.",
 			"401 und 402 (KI-Kontingent erschöpft) beenden den Lauf; andere Fehler betreffen nur das eine Dokument.",
 			"Erneut starten ist sicher: Default ist analysis_status=not_started, Vorgemerktes fällt heraus. Fortschritt: documents list --immobilie-id <id> --analysis-status processing --limit 1 --fields total (ebenso queued).",
 			"Kosten begrenzt das KI-Kontingent des Plans — jede Analyse zählt.",
