@@ -59,3 +59,18 @@ func TestDocumentsListNamesCategories(t *testing.T) {
 		t.Errorf("--category soll die Dokumentarten nennen, got %q", flag.Desc)
 	}
 }
+
+// TestDocumentsSetUnitProjectsFields: Die Route antwortet mit dem Dokument
+// selbst (document_schema.dump) — ein Agent, der 900 Mietverträge zuordnet,
+// liest nur id und unit_id und bekommt keine Warnung.
+func TestDocumentsSetUnitProjectsFields(t *testing.T) {
+	h := newHarness(t)
+	h.respond = `{"id":"d-1","dateiname":"Mietvertrag.pdf","unit_id":"u-1","classification":{"category":"mietvertrag"}}`
+	code, stdout, stderr := h.run("documents", "set-unit", "d-1", "--unit-id", "u-1", "--fields", "id,unit_id")
+	if code != 0 || stderr != "" {
+		t.Fatalf("Exit 0 und leeres stderr erwartet, got %d (%s)", code, stderr)
+	}
+	if strings.TrimSpace(stdout) != `{"id":"d-1","unit_id":"u-1"}` {
+		t.Errorf("Projektion auf id,unit_id erwartet, got %q", stdout)
+	}
+}
