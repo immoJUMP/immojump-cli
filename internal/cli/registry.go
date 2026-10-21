@@ -131,6 +131,10 @@ type Spec struct {
 	Local bool
 	// Raw: Die Antwort ist möglicherweise kein JSON (z. B. YAML-Export).
 	Raw bool
+	// Paged: Die Route blättert über limit/offset mit dem Umschlag
+	// {items, total, limit, offset}. Der Befehl führt dann --all: alle Seiten
+	// holen und als EIN Array ausgeben.
+	Paged bool
 	// EmptyBodyHint: Ein leerer Body ergibt für diesen Befehl keinen Sinn.
 	// Der Text sagt, was stattdessen zu setzen ist — statt eines 400 nach
 	// einem unnötigen Roundtrip.
@@ -336,6 +340,28 @@ const fullUserFlagDesc = "Vollständige Antwort von /api/user/me ausgeben statt 
 // modules/unit.py). Einen anderen Wert („Wohnung“) lässt das Backend ohne
 // chris2k20/immo-calc#1841 erst am Postgres-Enum scheitern: HTTP 500.
 const einheitentypDesc = "Einheitentyp: wohnen, gewerbe, stellplatz, garage oder sonstiges"
+
+// unitListFlags sind die Filter beider Einheitenlisten (unit_routes.py,
+// _read_list_filters). --limit steht je Befehl davor, weil die Defaults
+// verschieden sind.
+var unitListFlags = []Flag{
+	{Name: "offset", Kind: FlagNumber, Desc: "ab dieser Position (0-basiert); mit --all der Startpunkt"},
+	{Name: "extern-id", Kind: FlagString, Desc: "nur die Einheit mit dieser Nummer des Verkäufers"},
+	{Name: "type", Kind: FlagString, Desc: einheitentypDesc},
+	{Name: "vacant", Kind: FlagBool, Desc: "nur Leerstand (Ist-Miete 0 oder leer); --vacant=false nur vermietete"},
+	{Name: "all", Kind: FlagBool, Desc: allPagesDesc},
+}
+
+var unitListQuery = []FlagQuery{
+	{Flag: "limit", Key: "limit"},
+	{Flag: "offset", Key: "offset"},
+	{Flag: "extern-id", Key: "extern_id"},
+	{Flag: "type", Key: "type"},
+	{Flag: "vacant", Key: "vacant"},
+}
+
+// allPagesDesc erklärt --all einheitlich für jeden blätterbaren Befehl.
+const allPagesDesc = "alle Seiten holen (je 500, --limit ändert die Seitengröße) und als ein Array ausgeben"
 
 // idArg ist die häufigste Argument-Definition.
 func idArg(desc string) []Arg { return []Arg{{Name: "id", Desc: desc}} }
@@ -555,11 +581,26 @@ var Registry = []Spec{
 	// mit (0 m², Miete 0). Die erste echte Einheit gehört dort hinein — eine
 	// zweite daneben ließe sie leer in der Mieterliste stehen.
 	{
-		Resource: "units", Verb: "list", Risk: RiskRead,
+		Resource: "units", Verb: "list", Risk: RiskRead, Paged: true,
 		Summary: "Einheiten einer Immobilie auflisten (neue Immobilien haben schon eine leere „Einheit 1“ — per units update befüllen)",
 		Method:  "GET", Path: "/api/units/immobilie/{immobilie-id}/units",
-		Args:    []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
-		Example: "immojump units list 5",
+		Args: []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
+		Flags: append([]Flag{
+			{Name: "limit", Kind: FlagNumber, Desc: "Einheiten je Seite (1–500); damit kommt der Umschlag {items, total, limit, offset} statt des Arrays"},
+		}, unitListFlags...),
+		Query:   unitListQuery,
+		Example: "immojump units list 5 --vacant --fields id,einheit,livingspace",
+	},
+	{
+		Resource: "units", Verb: "list-org", Risk: RiskRead, Paged: true,
+		Summary: "Einheiten der ganzen Organisation auflisten, jede mit immobilie_name (immer als Umschlag {items, total, limit, offset})",
+		Method:  "GET", Path: "/api/units/organisation/{org}/units",
+		Flags: append([]Flag{
+			{Name: "limit", Kind: FlagNumber, Desc: "Einheiten je Seite (Default 100, höchstens 500)"},
+			{Name: "immobilie-id", Kind: FlagString, Desc: "nur Einheiten dieser Immobilie"},
+		}, unitListFlags...),
+		Query:   append([]FlagQuery{{Flag: "immobilie-id", Key: "immobilie_id"}}, unitListQuery...),
+		Example: "immojump units list-org --vacant --all --fields immobilie_name,einheit,livingspace,soll_rent",
 	},
 	{
 		// Die Flags sind genau die Felder, die die Route liest
