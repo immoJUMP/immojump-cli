@@ -761,3 +761,45 @@ func TestUploadEmptyFilesAreIncomplete(t *testing.T) {
 		t.Errorf("UPLOAD_INCOMPLETE mit Hinweis auf leere Dateien erwartet, got %v", line)
 	}
 }
+
+// TestUploadRejectsTooLargeFilesLocally: Eine Datei über der Grenze geht gar
+// nicht erst raus — sie stünde minutenlang in der Leitung und käme als 413
+// oder Timeout zurück.
+func TestUploadRejectsTooLargeFilesLocally(t *testing.T) {
+	root := dataroom(t, map[string]string{"klein.pdf": "A"})
+	big := filepath.Join(root, "scan.pdf")
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := f.Truncate(251 << 20); err != nil { // sparse: kostet keinen Platz
+		t.Fatalf("Truncate: %v", err)
+	}
+	_ = f.Close()
+
+	h := newHarness(t)
+	b := &uploadBackend{}
+	h.handle = b.handle
+	code, stdout, _ := h.run("documents", "upload", root)
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d", code)
+	}
+	if fmt.Sprint(b.batches) != "[[klein.pdf]]" {
+		t.Errorf("nur klein.pdf gesendet erwartet, got %v", b.batches)
+	}
+	out := decodeUpload(t, stdout)
+	if len(out.Failed) != 1 || out.Failed[0].File != big || !strings.Contains(out.Failed[0].Message, "zu groß") {
+		t.Errorf("scan.pdf als zu groß unter failed erwartet, got %+v", out.Failed)
+	}
+
+	h2 := newHarness(t)
+	if code, _, stderr := h2.run("documents", "upload", filepath.Join(root, "klein.pdf"), "--max-file-mb", "0.0000001"); code != 1 || h2.last != nil {
+		t.Errorf("einzelne Datei über --max-file-mb: Exit 1 ohne Request erwartet, got %d (%s)", code, stderr)
+	} else if line := errorLine(t, stderr); line["code"] != "FILE_TOO_LARGE" {
+		t.Errorf("FILE_TOO_LARGE erwartet, got %v", line)
+	}
+	h3 := newHarness(t)
+	if code, _, _ := h3.run("documents", "upload", root, "--max-file-mb", "0"); code != 2 {
+		t.Errorf("--max-file-mb 0: Exit 2 erwartet, got %d", code)
+	}
+}

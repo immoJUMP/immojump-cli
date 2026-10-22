@@ -1124,6 +1124,7 @@ Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei (eine einz
   - `--report` — auch für eine einzelne Datei den Bericht ausgeben statt des Arrays des Backends
   - `--batch-files <wert>` — höchstens so viele Dateien je Request (Default 10)
   - `--batch-mb <wert>` — höchstens so viele MB je Request (Default 25; eine größere Datei geht allein)
+  - `--max-file-mb <wert>` — Dateien über dieser Größe gar nicht senden, sondern unter failed (Default 250)
 - **Body:** Multipart-Upload im Feld `files[]` (gestreamt, je Datei mit Content-Type aus der Endung), dazu `organisation_id` aus der Konfiguration und `report=true`.
 - **Details:**
   - Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code. Scheitern Teile (etwa Mitglieder eines ZIP) oder sind leer, steht das als JSON auf stderr und der Aufruf endet mit Exit 1.
