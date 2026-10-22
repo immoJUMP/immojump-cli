@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -212,7 +213,8 @@ func TestSaveLoadRoundtripAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	// Windows kennt keine Unix-Rechte; os.Stat meldet dort immer 0666/0444.
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("0600 erwartet, got %o", perm)
 	}
 	out, err := Load(path)
@@ -229,12 +231,27 @@ func TestPathResolution(t *testing.T) {
 		t.Errorf("IMMOJUMP_CONFIG soll gewinnen, got %q", got)
 	}
 	got := Path(envMap(map[string]string{"XDG_CONFIG_HOME": "/xdg"}))
-	if got != "/xdg/immojump/config.json" {
-		t.Errorf("XDG-Pfad erwartet, got %q", got)
+	if want := filepath.Join("/xdg", "immojump", "config.json"); got != want {
+		t.Errorf("XDG-Pfad %q erwartet, got %q", want, got)
 	}
 	got = Path(envMap(map[string]string{"HOME": "/home/u"}))
-	if got != "/home/u/.config/immojump/config.json" {
-		t.Errorf("HOME-Fallback erwartet, got %q", got)
+	if want := filepath.Join("/home/u", ".config", "immojump", "config.json"); got != want {
+		t.Errorf("HOME-Fallback %q erwartet, got %q", want, got)
+	}
+}
+
+// TestPathFallsBackToUserProfile: PowerShell und cmd setzen kein HOME, nur
+// USERPROFILE. Ohne diesen Fallback endet `immojump auth login` unter Windows
+// mit "Kein Config-Pfad ermittelbar". Der Pfad ist derselbe, den Git Bash über
+// HOME (= USERPROFILE) findet — beide Shells teilen sich also eine Datei.
+func TestPathFallsBackToUserProfile(t *testing.T) {
+	got := Path(envMap(map[string]string{"USERPROFILE": `C:\Users\chris`}))
+	if want := filepath.Join(`C:\Users\chris`, ".config", "immojump", "config.json"); got != want {
+		t.Errorf("USERPROFILE-Fallback %q erwartet, got %q", want, got)
+	}
+	got = Path(envMap(map[string]string{"HOME": "/home/u", "USERPROFILE": `C:\Users\chris`}))
+	if want := filepath.Join("/home/u", ".config", "immojump", "config.json"); got != want {
+		t.Errorf("HOME soll vor USERPROFILE gewinnen: %q erwartet, got %q", want, got)
 	}
 }
 
@@ -288,7 +305,7 @@ func TestSaveIsAtomic(t *testing.T) {
 	if out.CurrentContext != "b" || out.Contexts["b"].Token != "tok-b" {
 		t.Errorf("zweiter Stand erwartet, got %+v", out)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Errorf("0600 auch nach dem Überschreiben erwartet: %v / %v", err, info)
 	}
 

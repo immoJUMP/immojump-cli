@@ -32,7 +32,7 @@ func (r *runner) runAuthLogin(spec Spec, flags *flagValues) int {
 	// Request und scheitert danach trotzdem.
 	if path == "" {
 		return r.fail(configErr(
-			"Kein Config-Pfad ermittelbar — %s setzen (oder HOME bzw. XDG_CONFIG_HOME)", config.EnvConfig))
+			"Kein Config-Pfad ermittelbar — %s setzen (oder HOME, USERPROFILE bzw. XDG_CONFIG_HOME)", config.EnvConfig))
 	}
 
 	if flags.has("token") && flags.has("token-env") {

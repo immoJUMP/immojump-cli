@@ -202,9 +202,13 @@ func CheckBaseURL(raw string, env func(string) string) error {
 }
 
 // Path bestimmt den Ort der Konfigurationsdatei:
-// IMMOJUMP_CONFIG > XDG_CONFIG_HOME > HOME.
+// IMMOJUMP_CONFIG > XDG_CONFIG_HOME > HOME > USERPROFILE.
 //
-// Fehlt alles drei — in Agenten-Containern durchaus üblich —, liefert Path
+// USERPROFILE ist das HOME von Windows: PowerShell und cmd setzen kein HOME.
+// Git Bash setzt HOME auf denselben Ordner — beide Shells finden so dieselbe
+// Datei.
+//
+// Fehlt alles — in Agenten-Containern durchaus üblich —, liefert Path
 // bewusst einen leeren Pfad statt eines relativen. Eine Token-Datei im
 // Arbeitsverzeichnis landet sonst im Zweifel im Repository des Kunden.
 func Path(env func(string) string) string {
@@ -215,8 +219,10 @@ func Path(env func(string) string) string {
 	if xdg := strings.TrimSpace(e("XDG_CONFIG_HOME")); xdg != "" {
 		return filepath.Join(xdg, "immojump", "config.json")
 	}
-	if home := strings.TrimSpace(e("HOME")); home != "" {
-		return filepath.Join(home, ".config", "immojump", "config.json")
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		if home := strings.TrimSpace(e(key)); home != "" {
+			return filepath.Join(home, ".config", "immojump", "config.json")
+		}
 	}
 	return ""
 }
@@ -255,7 +261,7 @@ func Load(path string) (*File, error) {
 func Save(path string, file *File) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf(
-			"Kein Config-Pfad ermittelbar — %s setzen (oder HOME bzw. XDG_CONFIG_HOME)", EnvConfig)
+			"Kein Config-Pfad ermittelbar — %s setzen (oder HOME, USERPROFILE bzw. XDG_CONFIG_HOME)", EnvConfig)
 	}
 	if file == nil {
 		file = &File{}
