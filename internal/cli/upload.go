@@ -624,11 +624,12 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 	if stopErr != nil {
 		return r.fail(stopErr)
 	}
-	if len(report.Failed) > 0 {
+	if len(report.Failed)+len(report.Empty) > 0 {
 		return r.fail(&api.Error{
-			Message: fmt.Sprintf("%d von %d Dateien nicht hochgeladen — Details unter failed auf stdout.", len(report.Failed), len(files)),
-			Code:    "UPLOAD_INCOMPLETE",
-			Exit:    1,
+			Message: fmt.Sprintf("%d von %d Dateien nicht hochgeladen (%d fehlgeschlagen, %d leer) — Details unter failed/empty auf stdout.",
+				len(report.Failed)+len(report.Empty), len(files), len(report.Failed), len(report.Empty)),
+			Code: "UPLOAD_INCOMPLETE",
+			Exit: 1,
 		})
 	}
 	return 0

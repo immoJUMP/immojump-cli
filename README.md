@@ -496,7 +496,7 @@ Was dabei zu wissen ist:
   leer, steht das auf stderr und der Aufruf endet mit Exit 1. `file` kommt aus dem `sourceFile` des Backends;
   bei einem ZIP zeigen alle Mitglieder auf das Archiv. Symlinks werden nie
   hochgeladen, und nichts außerhalb des genannten Ordners.
-  Exit 0 nur ohne `failed`; sonst Exit 1, der Bericht steht trotzdem auf stdout.
+  Exit 0 nur ohne `failed` und `empty`; sonst Exit 1, der Bericht steht trotzdem auf stdout.
   Uploads werden nie automatisch wiederholt — erneut ausführen ist sicher,
   Schon-Hochgeladenes landet unter `duplicates`.
 - **`documents analyze-all`** gibt `{listed, queued, skipped, failed}` aus.
