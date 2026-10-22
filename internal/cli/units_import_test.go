@@ -278,6 +278,9 @@ func TestUnitsImportCSVNumbersAreStrict(t *testing.T) {
 		{"negativer deutscher Tausender ohne Schalter", "extern_id;ist_rent\nA;-1.250\n", nil, false, ""},
 		{"negativer Tausender mit Schalter", "extern_id;ist_rent\nA;-1.250\n", []string{"--decimal-comma"}, true, `"ist_rent":-1250`},
 		{"Tausender-Form mit Komma-Trenner bleibt Dezimalpunkt", "extern_id,ist_rent\nA,1.250\n", nil, true, `"ist_rent":1.250`},
+		// Dokumentiert: In einer ,-CSV ist der Punkt der Dezimalpunkt — auch
+		// in Anführungszeichen. „1.250“ ist dort 1,25, nicht 1250.
+		{"gequotet in ,-CSV ist Dezimalpunkt", "extern_id,ist_rent\nA,\"1.250\"\n", nil, true, `"ist_rent":1.250`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

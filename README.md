@@ -445,7 +445,8 @@ ID=$(immojump immobilien create --type MFH \
 #     "livingspace":62.5,"rooms":2,"ist_rent":540,"soll_rent":610,"lease_start_date":"2019-04-01"}
 immojump units import "$ID" --file mieter-haus-01.ndjson --dry-run   # prüfen, nichts speichern
 immojump units import "$ID" --file mieter-haus-01.ndjson             # Stapel zu 500, eine Summe
-#    CSV geht auch: Kopfzeile = Feldnamen, deutsche Zahlen mit --decimal-comma
+#    CSV geht auch: Kopfzeile = Feldnamen, deutsche Zahlen mit --decimal-comma.
+#    Achtung: In einer ,-CSV ohne --decimal-comma ist "1.250" (auch gequotet) 1,25.
 immojump units import "$ID" --file mieter-haus-01.csv --decimal-comma
 
 # 3. Eigene Analysewerte je Einheit: Feld einmal anlegen (Admin), dann in Stapeln setzen
