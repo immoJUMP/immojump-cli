@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1009,5 +1010,46 @@ func TestUploadArchivesGetTheirOwnBatch(t *testing.T) {
 	out := decodeUpload(t, stdout)
 	if fmt.Sprint(out.Empty) != fmt.Sprint([]string{filepath.Join(root, "a.zip"), filepath.Join(root, "b.zip")}) {
 		t.Errorf("leere Mitglieder je ihrem Archiv erwartet, got %v", out.Empty)
+	}
+}
+
+func writeZip(t *testing.T, path string, members map[string]string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	w := zip.NewWriter(f)
+	for name, content := range members {
+		part, _ := w.Create(name)
+		_, _ = part.Write([]byte(content))
+	}
+	_ = w.Close()
+	_ = f.Close()
+}
+
+// TestUploadSingleEmptyFileIsIncompleteLocally: Eine leere Einzeldatei bekam
+// vom Backend 400 („All files are empty“) und damit Exit 11, als wäre der
+// Aufruf falsch. Sie ist schlicht nicht hochladbar: Exit 1, ohne Request.
+func TestUploadSingleEmptyFileIsIncompleteLocally(t *testing.T) {
+	root := dataroom(t, map[string]string{"leer.pdf": ""})
+	writeZip(t, filepath.Join(root, "leer.zip"), map[string]string{"a.pdf": "", "b.pdf": ""})
+	writeZip(t, filepath.Join(root, "voll.zip"), map[string]string{"a.pdf": "", "b.pdf": "%PDF"})
+	for _, name := range []string{"leer.pdf", "leer.zip"} {
+		h := newHarness(t)
+		code, stdout, stderr := h.run("documents", "upload", filepath.Join(root, name))
+		if code != 1 || h.last != nil || stdout != "" {
+			t.Errorf("%s: Exit 1 ohne Request und ohne stdout erwartet, got %d (%s)", name, code, stderr)
+			continue
+		}
+		line := errorLine(t, stderr)
+		if line["code"] != "UPLOAD_INCOMPLETE" || fmt.Sprint(line["empty"]) != "["+filepath.Join(root, name)+"]" {
+			t.Errorf("%s: UPLOAD_INCOMPLETE mit empty erwartet, got %v", name, line)
+		}
+	}
+	h := newHarness(t)
+	h.respond = `[{"id":1}]`
+	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "voll.zip")); code != 0 || h.last == nil {
+		t.Errorf("ZIP mit Inhalt soll gesendet werden, got %d (%s)", code, stderr)
 	}
 }
