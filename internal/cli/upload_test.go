@@ -50,7 +50,11 @@ func (b *uploadBackend) handle(rec *recorded) reply {
 	}
 	docs := []string{}
 	for i, name := range names {
-		docs = append(docs, fmt.Sprintf(`{"id":%d,"dateiname":%q,"unit_id":null,"sourceFile":%q}`, len(b.batches)*100+i, secureFilename(name), name))
+		unit := "null"
+		if rec.Multipart != nil && len(rec.Multipart.Value["unit_id"]) == 1 {
+			unit = fmt.Sprintf("%q", rec.Multipart.Value["unit_id"][0])
+		}
+		docs = append(docs, fmt.Sprintf(`{"id":%d,"dateiname":%q,"unit_id":%s,"sourceFile":%q}`, len(b.batches)*100+i, secureFilename(name), unit, name))
 	}
 	return reply{body: fmt.Sprintf(`{"documents":[%s],"duplicates":[],"failed":[],"empty":[]}`, strings.Join(docs, ","))}
 }
@@ -879,4 +883,44 @@ func TestUploadFirstBatchAbortKeepsLocalRejections(t *testing.T) {
 	if len(out.Failed) != 3 || !strings.Contains(messages["gross.pdf"], "zu groß") || messages["b.pdf"] == "" {
 		t.Errorf("gross.pdf (zu groß), a.pdf und b.pdf unter failed erwartet, got %+v", out.Failed)
 	}
+}
+
+// TestUploadDetectsIgnoredUnitID: Eine Instanz ohne unit_id-Unterstützung
+// nimmt die Datei an und verwirft die Zuordnung still — der Mietvertrag hinge
+// dann nur am Haus. Das CLI prüft die Antwort und meldet das.
+func TestUploadDetectsIgnoredUnitID(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B"})
+	t.Run("Bericht", func(t *testing.T) {
+		h := newHarness(t)
+		h.respond = `{"documents":[{"id":1,"dateiname":"a.pdf","sourceFile":"a.pdf"},{"id":2,"dateiname":"b.pdf","unit_id":"u-1","sourceFile":"b.pdf"}],"duplicates":[],"failed":[],"empty":[]}`
+		code, stdout, stderr := h.run("documents", "upload", root, "--immobilie-id", "5", "--unit-id", "u-1")
+		if code != 1 {
+			t.Fatalf("Exit 1 erwartet, got %d (%s)", code, stderr)
+		}
+		if out := decodeUpload(t, stdout); len(out.Uploaded) != 2 {
+			t.Errorf("Bericht bleibt auf stdout, got %+v", out)
+		}
+		if strings.Count(stderr, "unit_id") < 1 || errorLine(t, stderr)["code"] != "UNIT_ID_IGNORED" {
+			t.Errorf("UNIT_ID_IGNORED erwartet, got %q", stderr)
+		}
+	})
+	t.Run("einzelne Datei", func(t *testing.T) {
+		h := newHarness(t)
+		h.respond = `[{"id":1,"dateiname":"a.pdf"}]`
+		code, stdout, stderr := h.run("documents", "upload", filepath.Join(root, "a.pdf"), "--immobilie-id", "5", "--unit-id", "u-1")
+		if code != 1 || strings.TrimSpace(stdout) != `[{"id":1,"dateiname":"a.pdf"}]` {
+			t.Fatalf("Exit 1 und unverändertes Array erwartet, got %d %q (%s)", code, stdout, stderr)
+		}
+		if errorLine(t, stderr)["code"] != "UNIT_ID_IGNORED" {
+			t.Errorf("UNIT_ID_IGNORED erwartet, got %q", stderr)
+		}
+	})
+	t.Run("zugeordnet", func(t *testing.T) {
+		h := newHarness(t)
+		b := &uploadBackend{}
+		h.handle = b.handle
+		if code, _, stderr := h.run("documents", "upload", root, "--immobilie-id", "5", "--unit-id", "u-1"); code != 0 || stderr != "" {
+			t.Errorf("Exit 0 und leeres stderr erwartet, got %d (%s)", code, stderr)
+		}
+	})
 }
