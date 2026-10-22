@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"archive/zip"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -292,6 +293,29 @@ func (m *fileMatcher) markUsed(path string) {
 	}
 }
 
+// emptyUpload: leere Datei, oder ein ZIP ohne eine nicht-leere Datei. RAR
+// lässt sich mit der Standardbibliothek nicht lesen — dort entscheidet das
+// Backend.
+func emptyUpload(file localFile) bool {
+	if file.size == 0 {
+		return true
+	}
+	if strings.ToLower(filepath.Ext(file.path)) != ".zip" {
+		return false
+	}
+	reader, err := zip.OpenReader(file.path)
+	if err != nil {
+		return false // kein lesbares ZIP: das Backend soll urteilen
+	}
+	defer func() { _ = reader.Close() }()
+	for _, member := range reader.File {
+		if !member.FileInfo().IsDir() && member.UncompressedSize64 > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // isArchive erkennt Archive, die das Backend entpackt.
 func isArchive(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
@@ -571,6 +595,16 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 
 	if legacy {
 		file := files[0]
+		if emptyUpload(file) {
+			// Das Backend antwortete mit 400 („All files are empty“), also
+			// Exit 11 — dabei ist nichts falsch aufgerufen, die Datei ist
+			// schlicht leer.
+			return r.fail(&api.Error{
+				Message: fmt.Sprintf("%s ist leer (oder ein Archiv nur mit leeren Dateien) — nicht gesendet.", file.path),
+				Code:    "UPLOAD_INCOMPLETE", Exit: 1,
+				Details: map[string]any{"empty": []string{file.path}},
+			})
+		}
 		if file.size > maxFileBytes {
 			return r.fail(&api.Error{Message: tooLarge(file), Code: "FILE_TOO_LARGE", Exit: 1,
 				Details: map[string]any{"file": file.path, "size": file.size}})

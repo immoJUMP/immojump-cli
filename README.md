@@ -514,7 +514,8 @@ Was dabei zu wissen ist:
   Request, Ausgabe das Array des Backends (Skripte mit `--fields id` bzw.
   `.[0].id` laufen weiter), Fehler mit ihrem Exit-Code. Scheitern dabei
   Mitglieder eines ZIP oder sind leer, steht das auf stderr und der Aufruf
-  endet mit Exit 1.
+  endet mit Exit 1. Eine leere Datei (oder ein ZIP nur mit leeren Dateien)
+  geht gar nicht erst raus: Exit 1, `UPLOAD_INCOMPLETE`.
 - **`documents analyze-all`** gibt `{listed, queued, skipped, failed}` aus.
   Bleibt das Rate Limit, endet es mit Exit 7, die übrigen Dokumente stehen mit
   `reason: rate_limited` unter `skipped` — später einfach erneut starten. Jede
