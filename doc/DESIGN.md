@@ -113,6 +113,14 @@ Befehle, die ihren Body selbst bauen (`documents upload`, `pipelines import`,
 zusätzlich `-q`. Sie stillschweigend zu ignorieren wäre schlimmer als ein
 Bedienfehler — ein Agent hielte sein Feld für angekommen.
 
+Leere Werte sind ein Bedienfehler: Kein positionales Argument und kein
+ID-Flag (`--…-id`, `--organisation`, global `--org`/`--context`) darf leer
+oder nur Leerzeichen sein — Exit 2 („… ist leer — Variable gesetzt?“), bevor
+irgendetwas passiert. `documents upload --immobilie-id "$ID"` mit leerer
+Variable lud sonst den ganzen Datenraum ohne Immobilie in die Organisation.
+Listen-Flags sind ausgenommen: `tags set --tag-ids ""` entfernt bewusst alle
+Tags.
+
 `pipelines import` hängt die aufgelöste Organisation immer als
 `?organisation_id=…` an: Die Import-Route liest sie ausschließlich aus Payload
 oder Query, den Header `X-Organisation-Id` ignoriert sie. Fehlt die

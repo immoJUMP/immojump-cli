@@ -431,6 +431,7 @@ braucht es `enterprise`. `extern_id` trägt die Nummer des Verkäufers
 (z. B. `RH-01-WE-001`) und ist je Immobilie eindeutig.
 
 ```bash
+# Leere IDs (unbelegte Variable in --immobilie-id "$ID") lehnt jeder Befehl mit Exit 2 ab.
 # 0. Nur lesen/schreiben, nie löschen oder nach außen freigeben
 export IMMOJUMP_ALLOW=read,write
 
