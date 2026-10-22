@@ -113,6 +113,10 @@ Befehle, die ihren Body selbst bauen (`documents upload`, `pipelines import`,
 zusätzlich `-q`. Sie stillschweigend zu ignorieren wäre schlimmer als ein
 Bedienfehler — ein Agent hielte sein Feld für angekommen.
 
+Schalter nehmen nur `true`/`false` bzw. `1`/`0` (Groß-/Kleinschreibung egal)
+oder stehen ohne Wert; `--dry-run=tru` ist Exit 2 — vorher wurde daraus still
+`false`, und der Trockenlauf schrieb echt.
+
 Leere Werte sind ein Bedienfehler: Kein positionales Argument und kein
 ID-Flag (`--…-id`, `--organisation`, global `--org`/`--context`) darf leer
 oder nur Leerzeichen sein — Exit 2 („… ist leer — Variable gesetzt?“), bevor
