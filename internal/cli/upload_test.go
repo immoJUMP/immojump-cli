@@ -1104,3 +1104,27 @@ func TestUploadUnitIDNotAppliedToDuplicates(t *testing.T) {
 		}
 	})
 }
+
+// TestUploadZipPrecheckIsBounded: Der Vorabcheck liest ein ZIP mit mehr
+// Einträgen als die Grenze nicht ein (400k Einträge ≈ 94 MB Verzeichnis) —
+// dann entscheidet das Backend. Eine zu große Datei prüft er gar nicht erst.
+func TestUploadZipPrecheckIsBounded(t *testing.T) {
+	old := zipCheckMaxEntries
+	zipCheckMaxEntries = 3
+	defer func() { zipCheckMaxEntries = old }()
+	root := dataroom(t, map[string]string{})
+	writeZip(t, filepath.Join(root, "viele.zip"), map[string]string{"a": "", "b": "", "c": "", "d": ""})
+	h := newHarness(t)
+	h.respond = `[]`
+	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "viele.zip")); code != 0 || h.last == nil {
+		t.Errorf("über der Eintragsgrenze ungeprüft senden erwartet, got %d (%s)", code, stderr)
+	}
+	h2 := newHarness(t)
+	code, _, stderr := h2.run("documents", "upload", filepath.Join(root, "viele.zip"), "--max-file-mb", "0.0000001")
+	if code != 1 || h2.last != nil {
+		t.Fatalf("zu groß: Exit 1 ohne Request erwartet, got %d (%s)", code, stderr)
+	}
+	if line := errorLine(t, stderr); line["code"] != "FILE_TOO_LARGE" {
+		t.Errorf("Größe vor dem ZIP-Check: FILE_TOO_LARGE erwartet, got %v", line)
+	}
+}
