@@ -506,7 +506,8 @@ empty}` mit lokalem Pfad je Datei — Exit 0 nur ohne `failed` und `empty`. Zuge
 wird über `sourceFile` des Backends, den Namen so, wie er gesendet wurde (bei
 Archiven das Archiv); den gespeicherten Namen normalisiert Werkzeug
 („Şahin.pdf" → „Sahin.pdf"), und ein Archivmitglied kann wie eine lose Datei
-heißen. Im selben Stapel ist deshalb jeder gesendete Name eindeutig — und
+heißen. Jedes Archiv geht in einem eigenen Stapel (`empty` nennt nur
+Mitgliedsnamen, ohne Herkunft). Im selben Stapel ist außerdem jeder gesendete Name eindeutig — und
 zusätzlich der normalisierte, damit die Namens-Heuristik für Instanzen ohne
 `sourceFile` (mit einem Hinweis auf stderr) eindeutig bleibt. **Eine
 einzelne Datei ohne `--report`** bleibt beim bisherigen Vertrag: ein
