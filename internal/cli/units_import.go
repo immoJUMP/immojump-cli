@@ -197,30 +197,33 @@ func (r *runner) readUnitRecords(flags *flagValues) ([]record, error) {
 	}
 }
 
-// duplicateExternIDs findet extern_id, die in der Eingabe mehrfach vorkommt.
-// Das Backend sieht nur einen Stapel — über Stapel hinweg überschriebe der
-// spätere Eintrag still den früheren.
-func duplicateExternIDs(records []record) []any {
-	first := map[string]int{}
+// duplicateKeys findet id und extern_id, die in der Eingabe mehrfach
+// vorkommen. Das Backend sieht nur einen Stapel — über Stapel hinweg
+// überschriebe der spätere Eintrag still den früheren.
+func duplicateKeys(records []record) []any {
 	var errs []any
-	for i, rec := range records {
-		extern := stringID(rec.data["extern_id"])
-		if extern == "" {
-			continue
-		}
-		if j, ok := first[extern]; ok {
+	for _, key := range []string{"id", "extern_id"} {
+		first := map[string]int{}
+		for i, rec := range records {
+			value := stringID(rec.data[key])
+			if value == "" {
+				continue
+			}
+			j, ok := first[value]
+			if !ok {
+				first[value] = i
+				continue
+			}
 			entry := map[string]any{
-				"index":     i,
-				"extern_id": extern,
-				"message":   fmt.Sprintf("extern_id „%s“ steht schon in %s.", extern, records[j].position(j)),
+				"index":   i,
+				key:       value,
+				"message": fmt.Sprintf("%s „%s“ steht schon in %s.", key, value, records[j].position(j)),
 			}
 			if rec.line > 0 {
 				entry["line"] = rec.line
 			}
 			errs = append(errs, entry)
-			continue
 		}
-		first[extern] = i
 	}
 	return errs
 }
@@ -247,10 +250,10 @@ func (r *runner) runUnitsImport(immobilieID string, flags *flagValues, resolved 
 	if len(records) == 0 {
 		return r.fail(usageErr("Die Eingabe enthält keine Einheiten"))
 	}
-	if dups := duplicateExternIDs(records); len(dups) > 0 {
+	if dups := duplicateKeys(records); len(dups) > 0 {
 		return r.fail(&api.Error{
-			Message: fmt.Sprintf("%d Einträge wiederholen eine extern_id — es wurde nichts gesendet.", len(dups)),
-			Code:    "DUPLICATE_EXTERN_ID",
+			Message: fmt.Sprintf("%d Einträge wiederholen eine id oder extern_id — es wurde nichts gesendet.", len(dups)),
+			Code:    "DUPLICATE_KEY",
 			Exit:    11,
 			Details: map[string]any{"errors": dups},
 		})

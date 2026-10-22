@@ -428,3 +428,28 @@ func TestUnitsImportHelpSaysRerunIsSafe(t *testing.T) {
 		}
 	}
 }
+
+// TestUnitsImportRejectsDuplicateIDsAcrossBatches: Dieselbe id in zwei
+// Stapeln hieße, die Einheit zweimal zu überschreiben — der zweite Eintrag
+// gewönne still.
+func TestUnitsImportRejectsDuplicateIDsAcrossBatches(t *testing.T) {
+	h := newHarness(t)
+	content := `{"id":"u-1","ist_rent":500}` + "\n" + `{"id":"u-2","ist_rent":600}` + "\n" + `{"id":"u-1","ist_rent":700}` + "\n"
+	file := writeTemp(t, "mieter.ndjson", content)
+	code, _, stderr := h.run("units", "import", "5", "--file", file, "--batch-size", "1")
+	if code != 11 {
+		t.Fatalf("Exit 11 erwartet, got %d (%s)", code, stderr)
+	}
+	if h.last != nil {
+		t.Error("vor dem ersten Stapel abbrechen")
+	}
+	line := errorLine(t, stderr)
+	errs, _ := line["errors"].([]any)
+	if len(errs) != 1 {
+		t.Fatalf("ein Fehler erwartet, got %v", line)
+	}
+	entry := errs[0].(map[string]any)
+	if entry["index"] != float64(2) || entry["id"] != "u-1" || entry["line"] != float64(3) {
+		t.Errorf("Duplikat id u-1 an index 2, Zeile 3 erwartet, got %v", entry)
+	}
+}

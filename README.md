@@ -485,8 +485,8 @@ Was dabei zu wissen ist:
   Jeder Stapel ist für sich alles oder nichts; scheitert Stapel *k* (Exit 11),
   sind die Stapel davor gespeichert (`committed_batches` in der Fehlerzeile),
   und `errors[].index`/`line` zeigen in die Datei. Korrigieren, die ganze Datei
-  erneut importieren. Eine `extern_id`, die in der Datei doppelt steht, bricht
-  vor dem ersten Stapel ab.
+  erneut importieren. Eine `id` oder `extern_id`, die in der Datei doppelt
+  steht, bricht vor dem ersten Stapel ab.
 - **`documents upload`** mit Ordner, mehreren Dateien oder `--report` berichtet
   je Datei:
   `{uploaded: [{id, dateiname, file}], duplicates, failed: [{file, message}], empty}`.
