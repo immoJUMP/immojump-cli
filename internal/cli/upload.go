@@ -271,6 +271,32 @@ func newFileMatcher(files []localFile) *fileMatcher {
 	return &fileMatcher{files: files, used: make([]bool, len(files))}
 }
 
+// markUsed vergibt eine Datei, die schon über sourceFile zugeordnet ist —
+// die Namens-Heuristik darf sie danach nicht noch einmal nehmen.
+func (m *fileMatcher) markUsed(path string) {
+	for i, file := range m.files {
+		if file.path == path {
+			m.used[i] = true
+		}
+	}
+}
+
+// archive liefert das einzige Archiv des Stapels („“, wenn keins oder
+// mehrere): Ein Name, der zu keiner losen Datei passt, ist dann ein Mitglied.
+func (m *fileMatcher) archive() string {
+	found := ""
+	for _, file := range m.files {
+		switch strings.ToLower(filepath.Ext(file.path)) {
+		case ".zip", ".rar":
+			if found != "" {
+				return ""
+			}
+			found = file.path
+		}
+	}
+	return found
+}
+
 func (m *fileMatcher) match(name string) string {
 	if name == "" {
 		return ""
@@ -602,6 +628,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		locate := func(entry map[string]any, name string) string {
 			if source, ok := entry["sourceFile"].(string); ok && source != "" {
 				if path := sourcePath(batch, source); path != "" {
+					matcher.markUsed(path)
 					return path
 				}
 			}
@@ -636,7 +663,12 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			report.Failed = append(report.Failed, failedFile{File: path, Message: stringID(failed["message"])})
 		}
 		for _, name := range parsed.Empty {
+			// empty nennt nur Namen (ohne sourceFile). Passt keine noch
+			// freie lose Datei, ist es ein Mitglied des Archivs im Stapel.
 			path := matcher.match(name)
+			if path == "" {
+				path = matcher.archive()
+			}
 			if path == "" {
 				path = name
 			}
