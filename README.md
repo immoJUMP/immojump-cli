@@ -493,17 +493,28 @@ Was dabei zu wissen ist:
   Lauf abweichen.
 - **`documents upload`** mit Ordner, mehreren Dateien oder `--report` berichtet
   je Datei:
-  `{uploaded: [{id, dateiname, file}], duplicates, failed: [{file, message}], empty}`.
-  Eine einzelne Datei ohne `--report` bleibt beim bisherigen Vertrag: ein
+  `{uploaded: [{id, dateiname, file}], duplicates, failed: [{file, message, may_exist}], empty}`.
+  `file` kommt aus dem `sourceFile` des Backends; bei einem ZIP zeigen alle
+  Mitglieder auf das Archiv. Symlinks werden nie hochgeladen, und nichts
+  außerhalb des genannten Ordners. Dateien über 250 MB (`--max-file-mb`)
+  gehen nicht raus und stehen unter `failed`.
+- **Exit-Code des Uploads:** 0 nur ohne `failed` und `empty`. Scheitern
+  einzelne Dateien oder Stapel (5xx, Netzwerk) und der Lauf geht weiter,
+  endet er mit Exit 1 (`UPLOAD_INCOMPLETE`). Stoppt ein Fehler den Lauf
+  (z. B. 401, 403, 429 oder 400 für eine fremde `unit_id`), gilt **dessen**
+  Exit-Code (4, 6, 7, 11 …). Wurde `--unit-id` nicht übernommen, endet der
+  Aufruf mit Exit 1 (`UNIT_ID_IGNORED`). In jedem Fall steht der Bericht auf
+  stdout.
+- **`may_exist: true`** an einer fehlgeschlagenen Datei heißt: Ihr Stapel
+  scheiterte nach dem Senden (5xx, Netzwerk, Timeout), der Server kann sie
+  gespeichert haben. Uploads werden nie automatisch wiederholt — erneut
+  ausführen **ohne** `--allow-duplicate` ist sicher, Schon-Hochgeladenes
+  landet unter `duplicates`.
+- **Eine einzelne Datei ohne `--report`** bleibt beim bisherigen Vertrag: ein
   Request, Ausgabe das Array des Backends (Skripte mit `--fields id` bzw.
-  `.[0].id` laufen weiter); scheitern dabei Mitglieder eines ZIP oder sind
-  leer, steht das auf stderr und der Aufruf endet mit Exit 1. `file` kommt aus dem `sourceFile` des Backends;
-  bei einem ZIP zeigen alle Mitglieder auf das Archiv. Symlinks werden nie
-  hochgeladen, und nichts außerhalb des genannten Ordners.
-  Exit 0 nur ohne `failed` und `empty`; sonst Exit 1, der Bericht steht trotzdem auf stdout.
-  Dateien über 250 MB (`--max-file-mb`) gehen nicht raus und stehen unter
-  `failed`. Uploads werden nie automatisch wiederholt — erneut ausführen ist sicher,
-  Schon-Hochgeladenes landet unter `duplicates`.
+  `.[0].id` laufen weiter), Fehler mit ihrem Exit-Code. Scheitern dabei
+  Mitglieder eines ZIP oder sind leer, steht das auf stderr und der Aufruf
+  endet mit Exit 1.
 - **`documents analyze-all`** gibt `{listed, queued, skipped, failed}` aus.
   Bleibt das Rate Limit, endet es mit Exit 7, die übrigen Dokumente stehen mit
   `reason: rate_limited` unter `skipped` — später einfach erneut starten. Jede
