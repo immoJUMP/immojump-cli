@@ -564,7 +564,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			IdempotencyKey: flags.get("idempotency-key"),
 			Multipart: &api.Multipart{Fields: fields, Files: []api.FilePart{{
 				Field: "files[]", Filename: filepath.Base(file.path), Path: file.path, ContentType: contentTypeFor(file.path),
-				Root: file.root, Name: file.rel,
+				Root: file.root, Name: file.rel, MaxSize: maxFileBytes,
 			}}},
 		})
 		if err != nil {
@@ -644,7 +644,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		for _, file := range batch {
 			parts = append(parts, api.FilePart{
 				Field: "files[]", Filename: filepath.Base(file.path), Path: file.path, ContentType: contentTypeFor(file.path),
-				Root: file.root, Name: file.rel,
+				Root: file.root, Name: file.rel, MaxSize: maxFileBytes,
 			})
 		}
 		// Uploads sind nicht idempotent (allow_duplicate, Archive) — der

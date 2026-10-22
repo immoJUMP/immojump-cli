@@ -941,3 +941,28 @@ func TestUploadLegacyUnreadableHeaderIsNotSilent(t *testing.T) {
 		t.Errorf("UPLOAD_INCOMPLETE erwartet, got %v", line)
 	}
 }
+
+// TestUploadMaxSizeAppliesAtSendTime: b.pdf wächst, während Stapel 1 läuft,
+// über die Grenze — beim Senden von Stapel 2 fällt das auf.
+func TestUploadMaxSizeAppliesAtSendTime(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B"})
+	h := newHarness(t)
+	b := &uploadBackend{}
+	h.handle = func(rec *recorded) reply {
+		if len(b.batches) == 0 {
+			_ = os.WriteFile(filepath.Join(root, "b.pdf"), make([]byte, 4096), 0o600)
+		}
+		return b.handle(rec)
+	}
+	code, stdout, _ := h.run("documents", "upload", root, "--batch-files", "1", "--max-file-mb", "0.001")
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d", code)
+	}
+	if fmt.Sprint(b.batches) != "[[a.pdf]]" {
+		t.Errorf("nur a.pdf gesendet erwartet, got %v", b.batches)
+	}
+	out := decodeUpload(t, stdout)
+	if len(out.Failed) != 1 || !strings.Contains(out.Failed[0].Message, "zu groß") {
+		t.Errorf("b.pdf als zu groß unter failed erwartet, got %+v", out.Failed)
+	}
+}

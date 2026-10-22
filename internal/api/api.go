@@ -44,6 +44,9 @@ type FilePart struct {
 	// bleibt der Name für Meldungen.
 	Root *os.Root
 	Name string
+	// MaxSize > 0 lehnt die Datei ab, wenn der geöffnete Deskriptor größer
+	// ist — geprüft unmittelbar vor dem Senden, nicht bei der Aufzählung.
+	MaxSize int64
 }
 
 // Multipart beschreibt einen Upload aus Dateien plus Formfeldern.
@@ -528,6 +531,11 @@ func openUploadFile(file FilePart) (*os.File, int64, error) {
 	if err := clearNonblock(f); err != nil {
 		_ = f.Close()
 		return nil, 0, localFileErr(path, "Datei %s nicht lesbar: %v", path, err)
+	}
+	if file.MaxSize > 0 && opened.Size() > file.MaxSize {
+		_ = f.Close()
+		return nil, 0, localFileErr(path, "%s ist zu groß (%.1f MB beim Senden, höchstens %.1f MB; --max-file-mb) — nicht gesendet",
+			path, float64(opened.Size())/(1<<20), float64(file.MaxSize)/(1<<20))
 	}
 	if hookAfterStat != nil {
 		hookAfterStat(path)

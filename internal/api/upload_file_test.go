@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -171,5 +172,31 @@ func TestRootedUploadRefusesSwapBetweenLstatAndOpen(t *testing.T) {
 	localFileError(t, err, filepath.Join(dir, "sub", "vertrag.pdf"))
 	if atomic.LoadInt32(calls) != 0 {
 		t.Error("nichts von außerhalb senden")
+	}
+}
+
+// TestUploadEnforcesMaxSizeOnOpenedFile: Die Grenze gilt für die Größe des
+// geöffneten Deskriptors, nicht nur für die der Aufzählung — eine Datei, die
+// bis zum Senden wächst, geht nicht in voller Größe raus.
+func TestUploadEnforcesMaxSizeOnOpenedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scan.pdf")
+	_ = os.WriteFile(path, []byte("%PDF"), 0o600)
+	hookBeforeOpen = func(p string) {
+		f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
+		_, _ = f.Write(make([]byte, 2048))
+		_ = f.Close()
+	}
+	defer func() { hookBeforeOpen = nil }()
+	srv, calls := scripted(t, []int{200}, nil)
+	req := uploadRequest(path)
+	req.Multipart.Files[0].MaxSize = 1024
+	_, err := testClient(srv).Do(req)
+	localFileError(t, err, path)
+	if !strings.Contains(err.Error(), "zu groß") {
+		t.Errorf("Meldung „zu groß“ erwartet, got %q", err.Error())
+	}
+	if atomic.LoadInt32(calls) != 0 {
+		t.Error("eine zu große Datei geht nicht raus")
 	}
 }
