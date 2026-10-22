@@ -30,6 +30,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `docs` | Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl |
 | `schema` | Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt |
 | `version` | Version ausgeben |
+| `update` | CLI auf die neueste Version aktualisieren |
 
 ## Globale Flags
 
@@ -2236,3 +2237,22 @@ Version des CLI ausgeben
 - **Endpoint:** `lokal`
 - **Risk:** `read`
 - **Beispiel:** `immojump version`
+
+### update
+
+CLI auf die neueste Version aktualisieren
+
+| Befehl | Risk | Endpoint |
+| --- | --- | --- |
+| `update` | write | `lokal` |
+
+#### update
+
+CLI auf die neueste Version aktualisieren (Prüfsumme wird geprüft); --check sieht nur nach
+
+- **Aufruf:** `immojump update`
+- **Endpoint:** `lokal`
+- **Risk:** `write`
+- **Flags:**
+  - `--check` — Nur nachsehen, ob es eine neuere Version gibt — nichts installieren (Risk read)
+- **Beispiel:** `immojump update --check`

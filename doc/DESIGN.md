@@ -282,6 +282,8 @@ Backend-Roadmap (siehe „Abgrenzung/später").
 - stderr: genau drei Zeilenformen, jede eine JSON-Zeile mit einem
   Marker-Feld vorneweg — `{"error":true,…}`, `{"warning":true,…}`,
   `{"trace":true,…}`. **stdout bleibt in jedem Fall reines JSON.**
+  Bei einem gewöhnlichen erfolgreichen Aufruf bleibt stderr leer; Ausnahmen
+  sind die beiden Update-Hinweise (siehe „Aktualisieren").
 - Exit-Codes (stabil, Agenten branchen darauf statt Meldungen zu parsen):
 
 | Exit | Bedeutung                                      |
@@ -517,6 +519,7 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
   Befehl hat; gleiche Auth, gleiche Allowlist, gleiche Policy (das Risk kommt
   aus der Registry, siehe oben)
 - `docs [resource [verb]]`, `schema [resource [verb]]`, `version`
+- `update [--check]` — siehe „Aktualisieren"
 
 Spezialfälle: `documents upload` (Multipart `files[]` gegen
 `/api/documents/documents/bulk-upload`; Dateien und Ordner, Stapel nach
@@ -565,6 +568,44 @@ erreichbar, kuratiert werden sie bei Bedarf.
    Command-Spec (ein Testfall pro Befehl), plus Help-/Exit-Code-Verhalten.
    Ein generischer Durchlauf über die komplette Registry stellt sicher, dass
    jeder Pfad-Platzhalter durch Args oder `{org}` gedeckt ist.
+
+## Aktualisieren
+
+`immojump update` löst die neueste Version über die Weiterleitung von
+`github.com/immoJUMP/immojump-cli/releases/latest` auf (nicht über
+api.github.com: deren anonymes Limit von 60 Abrufen/Stunde teilen sich alle
+hinter einem Firmen-NAT), lädt `immojump-<os>-<arch>[.exe]` und
+`SHA256SUMS.txt` und ersetzt das laufende Binary per `rename` im selben
+Ordner. Unter Windows wandert das alte nach `.old`, weil ein laufendes `.exe`
+sich umbenennen, aber nicht überschreiben lässt.
+
+- **Fail-closed:** Ohne Prüfsummendatei oder ohne Eintrag für das Binary
+  wird nichts installiert (`CHECKSUM_MISSING`), bei Abweichung ebenso
+  (`CHECKSUM_MISMATCH`). Beides Exit 1.
+- **Risk `write`**, `--check` zählt als `read`: Ein Agent unter `--readonly`
+  darf nachsehen, aber nicht die Maschine verändern.
+- **Kein Token an GitHub.** Der Release-Client ist ein eigener HTTP-Client
+  ohne Auth-Header.
+- Entwicklungs-Builds (`dev`) haben keine vergleichbare Version und brechen
+  mit `DEV_BUILD` ab.
+
+Zwei Hinweise sagen, wann es Zeit ist. Beide sind `{"warning":true,…}`-Zeilen
+und ändern nie Exit-Code oder stdout:
+
+1. **Täglicher Hinweis, nur für Menschen.** Nur wenn stderr ein Terminal ist,
+   `CI` und `IMMOJUMP_NO_UPDATE_CHECK` leer sind und die Version lesbar ist.
+   Der Abruf läuft parallel zum Befehl (2 s Timeout) und höchstens einmal in
+   24 Stunden; der Stand liegt in `update-check.json` neben der
+   `config.json`. Ein Fehlschlag bleibt still und wird erst am nächsten Tag
+   wiederholt.
+2. **Mindestversion des Servers, für alle.** Das CLI schickt
+   `User-Agent: immojump-cli/<version>`; das Backend antwortet mit
+   `X-Immojump-Cli-Min-Version`. Liegt die installierte Version darunter,
+   kommt eine Warnzeile (`installed`, `minimum`, `update_command`), höchstens
+   eine je Aufruf und vor einer etwaigen Fehlerzeile. Das ist der Weg, auf dem
+   ein Agent erfährt, dass seine Befehle gegen einen veränderten API-Vertrag
+   laufen. Den Wert pflegt das Backend (`immojump_cli.min_version`) und hebt
+   ihn bei jedem Bruch im API-Vertrag an.
 
 ## Release-Fluss
 

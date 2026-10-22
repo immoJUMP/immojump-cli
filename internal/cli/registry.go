@@ -51,6 +51,7 @@ const (
 	SpecialDocs                = "docs"
 	SpecialSchema              = "schema"
 	SpecialVersion             = "version"
+	SpecialUpdate              = "update"
 	SpecialSharesCreate        = "shares-create"
 	SpecialTagsSet             = "tags-set"
 	SpecialDocumentsUpload     = "documents-upload"
@@ -341,6 +342,7 @@ var Resources = []ResourceInfo{
 	{"docs", "Markdown-Referenz ausgeben — komplett oder für eine Ressource/einen Befehl"},
 	{"schema", "Befehls-Schema als JSON ausgeben — komplett oder als Ausschnitt"},
 	{"version", "Version ausgeben"},
+	{"update", "CLI auf die neueste Version aktualisieren"},
 }
 
 // GlobalFlags gelten für jeden Befehl — vor oder nach dem Befehl notierbar.
@@ -1964,6 +1966,17 @@ var Registry = []Spec{
 		Resource: "version", Risk: RiskRead, Local: true, Special: SpecialVersion,
 		Summary: "Version des CLI ausgeben",
 		Example: "immojump version",
+	},
+	{
+		// write, nicht read: update tauscht das Binary auf dieser Maschine
+		// aus. Ein Agent unter --readonly soll das nicht können. --check
+		// ändert nichts und zählt als read (siehe dispatch).
+		Resource: "update", Risk: RiskWrite, Local: true, Special: SpecialUpdate,
+		Summary: "CLI auf die neueste Version aktualisieren (Prüfsumme wird geprüft); --check sieht nur nach",
+		Flags: []Flag{
+			{Name: "check", Kind: FlagBool, Desc: "Nur nachsehen, ob es eine neuere Version gibt — nichts installieren (Risk read)"},
+		},
+		Example: "immojump update --check",
 	},
 }
 

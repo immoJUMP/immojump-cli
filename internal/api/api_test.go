@@ -528,3 +528,48 @@ func TestExitCodeForPlainError(t *testing.T) {
 		t.Errorf("kein Fehler -> Exit 0 erwartet, got %d", got)
 	}
 }
+
+// TestDoReportsResponseHeaders: OnResponse sieht die Header jeder Antwort —
+// auch einer Fehlerantwort. Darüber erfährt das CLI die Mindestversion.
+func TestDoReportsResponseHeaders(t *testing.T) {
+	status := 200
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Probe", "da")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := testClient(srv)
+	var seen []string
+	c.OnResponse = func(h http.Header) { seen = append(seen, h.Get("X-Probe")) }
+	if _, err := c.Do(Request{Method: "GET", Path: "/api/contacts"}); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	status = 404
+	if _, err := c.Do(Request{Method: "GET", Path: "/api/contacts"}); err == nil {
+		t.Fatal("Fehler bei 404 erwartet")
+	}
+	if len(seen) != 2 || seen[0] != "da" || seen[1] != "da" {
+		t.Errorf("Header beider Antworten erwartet, got %v", seen)
+	}
+}
+
+// TestDoUsesClientUserAgent: Ein gesetzter UserAgent ersetzt den Default.
+func TestDoUsesClientUserAgent(t *testing.T) {
+	var ua string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua = r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := testClient(srv)
+	c.UserAgent = "immojump-cli/v1.2.3"
+	if _, err := c.Do(Request{Method: "GET", Path: "/api/contacts"}); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if ua != "immojump-cli/v1.2.3" {
+		t.Errorf("User-Agent immojump-cli/v1.2.3 erwartet, got %q", ua)
+	}
+}

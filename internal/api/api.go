@@ -114,6 +114,11 @@ type Client struct {
 	// OnRetry meldet jede Wiederholung, bevor gewartet wird: attempt ist der
 	// kommende Versuch (ab 2), attempts die Höchstzahl.
 	OnRetry func(attempt, attempts int, wait time.Duration, err *Error)
+	// OnResponse sieht die Header jeder Antwort, auch einer Fehlerantwort —
+	// etwa die Mindestversion, die der Server dem CLI mitteilt.
+	OnResponse func(http.Header)
+	// UserAgent ersetzt den Default (das CLI hängt seine Version an).
+	UserAgent string
 }
 
 // MaxRetryWait deckelt die Pause zwischen zwei Versuchen — auch ein
@@ -348,7 +353,11 @@ func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
 		httpReq.ContentLength = length
 	}
 	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set("User-Agent", UserAgent)
+	userAgent := UserAgent
+	if c.UserAgent != "" {
+		userAgent = c.UserAgent
+	}
+	httpReq.Header.Set("User-Agent", userAgent)
 	if c.Token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -395,6 +404,9 @@ func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
 		}
 	}
 	defer func() { _ = httpRes.Body.Close() }()
+	if c.OnResponse != nil {
+		c.OnResponse(httpRes.Header)
+	}
 
 	raw, err := io.ReadAll(httpRes.Body)
 	if err != nil {

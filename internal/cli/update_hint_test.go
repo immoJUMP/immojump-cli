@@ -1,0 +1,188 @@
+package cli
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+)
+
+// latestLookups zählt die Abrufe von /releases/latest.
+func (f *fakeRelease) latestLookups() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, p := range f.paths {
+		if p == "/releases/latest" {
+			n++
+		}
+	}
+	return n
+}
+
+func warningLines(t *testing.T, stderr string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(stderr), "\n") {
+		if line == "" {
+			continue
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(line), &parsed); err != nil {
+			t.Fatalf("stderr-Zeile ist kein JSON: %q", line)
+		}
+		if parsed["warning"] == true {
+			out = append(out, parsed)
+		}
+	}
+	return out
+}
+
+// TestUpdateHintShownWhenNewer: Ein Mensch am Terminal erfährt, dass es eine
+// neuere Version gibt — als Warnzeile auf stderr, stdout bleibt unberührt.
+func TestUpdateHintShownWhenNewer(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	u := newUpdateRun(t, "v0.4.0", release)
+	u.interactive = true
+
+	code, stdout, stderr := u.run("version")
+	if code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d", code)
+	}
+	if stdout != "v0.4.0\n" {
+		t.Errorf("stdout verändert: %q", stdout)
+	}
+	warnings := warningLines(t, stderr)
+	if len(warnings) != 1 {
+		t.Fatalf("genau eine Warnzeile erwartet, stderr %q", stderr)
+	}
+	w := warnings[0]
+	msg, _ := w["message"].(string)
+	if !strings.Contains(msg, "v0.10.0") || !strings.Contains(msg, "immojump update") {
+		t.Errorf("Hinweis nennt Version und Befehl nicht: %q", msg)
+	}
+	if w["installed"] != "v0.4.0" || w["latest"] != "v0.10.0" || w["update_command"] != "immojump update" {
+		t.Errorf("Details fehlen: %v", w)
+	}
+}
+
+// TestUpdateHintOncePerDay: Höchstens ein Abruf und ein Hinweis pro Tag —
+// sonst wird der Hinweis zu Lärm und jeder Aufruf langsamer.
+func TestUpdateHintOncePerDay(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	u := newUpdateRun(t, "v0.4.0", release)
+	u.interactive = true
+
+	u.run("version")
+	u.now = u.now.Add(23 * time.Hour)
+	_, _, stderr := u.run("version")
+	if release.latestLookups() != 1 {
+		t.Errorf("innerhalb von 24 h genau ein Abruf erwartet, got %d", release.latestLookups())
+	}
+	if stderr != "" {
+		t.Errorf("zweiter Aufruf am selben Tag soll still sein, stderr %q", stderr)
+	}
+
+	u.now = u.now.Add(2 * time.Hour)
+	_, _, stderr = u.run("version")
+	if release.latestLookups() != 2 {
+		t.Errorf("nach 24 h neuer Abruf erwartet, got %d", release.latestLookups())
+	}
+	if len(warningLines(t, stderr)) != 1 {
+		t.Errorf("nach 24 h erneuter Hinweis erwartet, stderr %q", stderr)
+	}
+}
+
+// TestUpdateHintSilentForMachines: Agenten, Skripte und CI bekommen keinen
+// täglichen Hinweis und lösen keinen Abruf aus — für sie ist der Hinweis auf
+// die Mindestversion des Servers da.
+func TestUpdateHintSilentForMachines(t *testing.T) {
+	cases := map[string]func(u *updateRun){
+		"kein Terminal": func(u *updateRun) { u.interactive = false },
+		"CI":            func(u *updateRun) { u.env["CI"] = "true" },
+		"abgeschaltet":  func(u *updateRun) { u.env["IMMOJUMP_NO_UPDATE_CHECK"] = "1" },
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+			u := newUpdateRun(t, "v0.4.0", release)
+			u.interactive = true
+			setup(u)
+			_, _, stderr := u.run("version")
+			if release.latestLookups() != 0 {
+				t.Errorf("kein Abruf erwartet, got %d", release.latestLookups())
+			}
+			if stderr != "" {
+				t.Errorf("stderr soll leer sein, got %q", stderr)
+			}
+		})
+	}
+}
+
+// TestUpdateHintSilentWhenCurrent: Aktuelle Version — kein Hinweis.
+func TestUpdateHintSilentWhenCurrent(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	u := newUpdateRun(t, "v0.10.0", release)
+	u.interactive = true
+	if _, _, stderr := u.run("version"); stderr != "" {
+		t.Errorf("stderr soll leer sein, got %q", stderr)
+	}
+}
+
+// TestUpdateHintSilentForDevBuild: Ein Entwicklungs-Build fragt nicht nach.
+func TestUpdateHintSilentForDevBuild(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	u := newUpdateRun(t, "dev", release)
+	u.interactive = true
+	_, _, stderr := u.run("version")
+	if release.latestLookups() != 0 || stderr != "" {
+		t.Errorf("kein Abruf und kein Hinweis erwartet (Abrufe %d, stderr %q)", release.latestLookups(), stderr)
+	}
+}
+
+// TestUpdateHintFailureIsSilent: Ist GitHub nicht erreichbar, merkt der
+// Nutzer nichts — und es wird erst morgen wieder versucht, nicht bei jedem
+// Aufruf.
+func TestUpdateHintFailureIsSilent(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	release.latest = 503
+	u := newUpdateRun(t, "v0.4.0", release)
+	u.interactive = true
+
+	code, stdout, stderr := u.run("version")
+	if code != 0 || stdout != "v0.4.0\n" || stderr != "" {
+		t.Errorf("Aufruf muss unberührt bleiben: exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	u.now = u.now.Add(time.Hour)
+	u.run("version")
+	if release.latestLookups() != 1 {
+		t.Errorf("nach einem Fehlschlag kein erneuter Abruf am selben Tag, got %d", release.latestLookups())
+	}
+}
+
+// TestUpdateHintKeepsExitCode: Der Hinweis ändert nie den Exit-Code eines
+// gescheiterten Befehls.
+func TestUpdateHintKeepsExitCode(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	u := newUpdateRun(t, "v0.4.0", release)
+	u.interactive = true
+	code, _, _ := u.run("quatsch")
+	if code != 2 {
+		t.Errorf("Exit 2 erwartet, got %d", code)
+	}
+}
+
+// TestUpdateHintNotDuringUpdate: `update` sieht selbst nach — ein zweiter
+// Abruf und ein Hinweis auf den gerade laufenden Befehl wären doppelt.
+func TestUpdateHintNotDuringUpdate(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	u := newUpdateRun(t, "v0.4.0", release)
+	u.interactive = true
+	_, _, stderr := u.run("update", "--check")
+	if release.latestLookups() != 1 {
+		t.Errorf("genau ein Abruf erwartet, got %d", release.latestLookups())
+	}
+	if stderr != "" {
+		t.Errorf("kein Hinweis während update, stderr %q", stderr)
+	}
+}
