@@ -148,7 +148,7 @@ func TestUnitsImportBatchSize(t *testing.T) {
 func TestUnitsImportJSONInputs(t *testing.T) {
 	for name, content := range map[string]string{
 		"array":    `[{"extern_id":"A"},{"extern_id":"B"}]`,
-		"umschlag": `{"units":[{"extern_id":"A"},{"extern_id":"B"}],"dry_run":false}`,
+		"umschlag": `{"units":[{"extern_id":"A"},{"extern_id":"B"}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
@@ -495,5 +495,32 @@ func TestUnitsImportFlagsAmbiguousRetry(t *testing.T) {
 		if ambiguous && fmt.Sprint(out.AmbiguousBatches) != "[1]" {
 			t.Errorf("HTTP %d: Stapel 1 als unsicher erwartet, got %v", status, out.AmbiguousBatches)
 		}
+	}
+}
+
+// TestUnitsImportWrapperRejectsOtherKeys: {"units":[...],"dry_run":true} ohne
+// --dry-run schrieb echt — das dry_run aus der Datei galt nie. Im Umschlag
+// ist deshalb nur der Schlüssel units erlaubt.
+func TestUnitsImportWrapperRejectsOtherKeys(t *testing.T) {
+	for _, content := range []string{
+		`{"units":[{"extern_id":"A"}],"dry_run":true}`,
+		`{"units":[{"extern_id":"A"}],"dry_run":false}`,
+		`{"units":[{"extern_id":"A"}],"immobilie_id":"7"}`,
+	} {
+		h := newHarness(t)
+		file := writeTemp(t, "m.json", content)
+		code, _, stderr := h.run("units", "import", "5", "--file", file)
+		if code != 2 || h.last != nil {
+			t.Errorf("%s: Exit 2 ohne Request erwartet, got %d (%s)", content, code, stderr)
+			continue
+		}
+		if msg, _ := errorLine(t, stderr)["message"].(string); !strings.Contains(msg, "--dry-run") {
+			t.Errorf("Meldung soll auf --dry-run verweisen, got %q", msg)
+		}
+	}
+	h := newHarness(t)
+	file := writeTemp(t, "w.json", `{"model":"unit","items":[{"extern_id":"RH-0","values":{"a":1}}]}`)
+	if code, _, stderr := h.run("units", "fields-set", "5", "--file", file); code != 2 || h.last != nil {
+		t.Errorf("fields-set-Umschlag mit model: Exit 2 ohne Request erwartet, got %d (%s)", code, stderr)
 	}
 }

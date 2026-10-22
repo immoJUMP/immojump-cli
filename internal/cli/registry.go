@@ -661,7 +661,7 @@ var Registry = []Spec{
 		Args: []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie"}},
 		Flags: []Flag{
 			{Name: "file", Kind: FlagString, Required: true,
-				Desc: "Mieterliste: NDJSON (eine Einheit je Zeile), JSON-Array oder CSV; - liest stdin"},
+				Desc: "Mieterliste: NDJSON (eine Einheit je Zeile), JSON-Array (oder {\"units\": [...]} ohne weitere Schlüssel) oder CSV; - liest stdin"},
 			{Name: "format", Kind: FlagString, Desc: "ndjson, json oder csv (ohne Angabe: aus der Endung, bei stdin aus dem ersten Zeichen)"},
 			{Name: "batch-size", Kind: FlagNumber, Desc: "Einheiten je Stapel (1–500, Default 500)"},
 			{Name: "dry-run", Kind: FlagBool, Desc: "nur prüfen und zählen, nichts speichern"},

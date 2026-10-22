@@ -572,7 +572,7 @@ Einheiten aus einer Mieterliste anlegen oder aktualisieren (in Stapeln, Abgleich
 - **Argumente:**
   - `immobilie-id` — ID der Immobilie
 - **Flags:**
-  - `--file <wert>` — (Pflicht) Mieterliste: NDJSON (eine Einheit je Zeile), JSON-Array oder CSV; - liest stdin
+  - `--file <wert>` — (Pflicht) Mieterliste: NDJSON (eine Einheit je Zeile), JSON-Array (oder {"units": [...]} ohne weitere Schlüssel) oder CSV; - liest stdin
   - `--format <wert>` — ndjson, json oder csv (ohne Angabe: aus der Endung, bei stdin aus dem ersten Zeichen)
   - `--batch-size <wert>` — Einheiten je Stapel (1–500, Default 500)
   - `--dry-run` — nur prüfen und zählen, nichts speichern
