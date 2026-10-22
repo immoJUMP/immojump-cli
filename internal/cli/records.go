@@ -115,6 +115,7 @@ func parseNDJSON(raw []byte) ([]record, error) {
 // parseJSONRecords liest ein JSON-Array von Objekten — oder ein Objekt, das
 // das Array unter wrapperKey trägt (so sieht der Request-Body selbst aus).
 func parseJSONRecords(raw []byte, wrapperKey string) ([]record, error) {
+	raw = bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf"))
 	var list []json.RawMessage
 	if err := decodeOneJSON(raw, &list); err != nil {
 		var wrapper map[string]json.RawMessage
