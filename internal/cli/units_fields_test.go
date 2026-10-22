@@ -15,6 +15,10 @@ type fieldsBackend struct {
 	values map[string]map[string]any
 	puts   []string
 	putFn  func(n int, body string) reply
+	// defs ersetzt die Standard-Definitionen; defsStatus != 0 lässt den
+	// Abruf scheitern.
+	defs       string
+	defsStatus int
 }
 
 func (b *fieldsBackend) handle(rec *recorded) reply {
@@ -26,6 +30,12 @@ func (b *fieldsBackend) handle(rec *recorded) reply {
 		}
 		return reply{body: fmt.Sprintf(`{"items":[%s],"total":%d,"limit":500,"offset":0}`, strings.Join(items, ","), len(b.units))}
 	case rec.Path == "/api/custom-fields/definitions":
+		if b.defsStatus != 0 {
+			return reply{status: b.defsStatus, body: `{"message":"Kein Zugriff."}`}
+		}
+		if b.defs != "" {
+			return reply{body: b.defs}
+		}
 		return reply{body: `{"definitions":[{"id":"d1","name":"Marktmiete","type":"number"},{"id":"d2","name":"Sanierung","type":"boolean"}]}`}
 	case rec.Path == "/api/custom-fields/values/batch/read" && rec.Method == "POST":
 		var payload struct {
@@ -388,12 +398,35 @@ func TestUnitsFieldsSetRejectsDuplicateUnitField(t *testing.T) {
 			t.Errorf("Exit 0 erwartet, got %d (%s)", code, stderr)
 		}
 	})
-	t.Run("ohne Organisation exakte Schlüssel", func(t *testing.T) {
+	// Ohne Organisation lassen sich Feldname und Feld-ID nicht auflösen —
+	// lieber abbrechen als still überschreiben.
+	t.Run("ohne Organisation", func(t *testing.T) {
 		h := newHarness(t)
 		delete(h.env, "IMMOJUMP_ORGANISATION_ID")
 		b := &fieldsBackend{units: []string{"u0"}}
 		h.handle = b.handle
-		file := writeTemp(t, "w.ndjson", `{"extern_id":"RH-0","values":{"Marktmiete":1}}`+"\n"+`{"id":"u0","values":{"marktmiete":2}}`)
+		file := writeTemp(t, "w.ndjson", `{"extern_id":"RH-0","values":{"Marktmiete":1}}`)
+		if code, _, stderr := h.run("units", "fields-set", "5", "--file", file); code != 3 || len(h.requests) != 0 {
+			t.Errorf("Exit 3 ohne Request erwartet, got %d (%s)", code, stderr)
+		}
+	})
+	t.Run("Definitionen nicht abrufbar", func(t *testing.T) {
+		h := newHarness(t)
+		b := &fieldsBackend{units: []string{"u0"}, defsStatus: 403}
+		h.handle = b.handle
+		file := writeTemp(t, "w.ndjson", `{"extern_id":"RH-0","values":{"Marktmiete":1}}`)
+		code, _, stderr := h.run("units", "fields-set", "5", "--file", file)
+		if code != 6 || len(b.puts) != 0 {
+			t.Errorf("Exit 6 ohne PUT erwartet, got %d (%s)", code, stderr)
+		}
+	})
+	// Das Backend vergleicht Namen mit Pythons casefold(): „Straße“ und
+	// „STRASSE“ sind dasselbe Feld — strings.ToLower sieht das nicht.
+	t.Run("casefold wie das Backend", func(t *testing.T) {
+		h := newHarness(t)
+		b := &fieldsBackend{units: []string{"u0"}, defs: `{"definitions":[{"id":"d3","name":"Straße"}]}`}
+		h.handle = b.handle
+		file := writeTemp(t, "w.ndjson", `{"extern_id":"RH-0","values":{"Straße":"A"}}`+"\n"+`{"extern_id":"RH-0","values":{"STRASSE":"B"}}`)
 		if code, _, stderr := h.run("units", "fields-set", "5", "--file", file); code != 11 || len(b.puts) != 0 {
 			t.Errorf("Exit 11 ohne PUT erwartet, got %d (%s)", code, stderr)
 		}

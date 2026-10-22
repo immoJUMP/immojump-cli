@@ -699,10 +699,10 @@ var Registry = []Spec{
 		Method:  "PUT", Path: "/api/custom-fields/values/batch",
 		Calls: []string{
 			"GET /api/units/immobilie/{immobilie-id}/units (alle Seiten, extern_id → id)",
-			"GET /api/custom-fields/definitions?model=unit (Feldname ↔ Feld-ID, wenn eine Organisation bekannt ist)",
+			"GET /api/custom-fields/definitions?model=unit (Feldname ↔ Feld-ID; ohne Organisation oder bei Fehler wird nichts geschrieben)",
 		},
 		Notes: []string{
-			"Setzt die Eingabe dasselbe Feld derselben Einheit mehrfach (auch über extern_id/id, Feldname/Feld-ID oder Groß-/Kleinschreibung), endet der Aufruf vor dem ersten PUT mit Exit 11 (DUPLICATE_FIELD) — über Stapel hinweg überschriebe der spätere Wert sonst still den früheren.",
+			"Setzt die Eingabe dasselbe Feld derselben Einheit mehrfach (auch über extern_id/id, Feldname/Feld-ID oder Schreibweise — verglichen wie im Backend, „Straße“ = „STRASSE“), endet der Aufruf vor dem ersten PUT mit Exit 11 (DUPLICATE_FIELD) — über Stapel hinweg überschriebe der spätere Wert sonst still den früheren.",
 		},
 		Args: []Arg{{Name: "immobilie-id", Desc: "ID der Immobilie, zu der die Einheiten gehören"}},
 		Flags: []Flag{
