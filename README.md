@@ -64,6 +64,8 @@ https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-linux
 https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-linux-arm64
 https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-darwin-arm64
 https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-darwin-amd64
+https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-windows-amd64.exe
+https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-windows-arm64.exe
 ```
 
 Für eine feste Version `latest/download` durch `download/v0.3.0` ersetzen. Die
@@ -76,6 +78,29 @@ RUN curl -fsSL -o /usr/local/bin/immojump \
  && chmod +x /usr/local/bin/immojump
 ```
 
+### Windows
+
+`install.sh` ist für Linux und macOS. Unter Windows in PowerShell:
+
+```powershell
+$ziel = "$env:LOCALAPPDATA\Programs\immojump"
+New-Item -ItemType Directory -Force $ziel | Out-Null
+Invoke-WebRequest -OutFile "$ziel\immojump.exe" `
+  https://github.com/immoJUMP/immojump-cli/releases/latest/download/immojump-windows-amd64.exe
+
+# Einmalig auf den PATH (danach ein neues Terminal öffnen)
+$pfad = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($pfad -notlike "*$ziel*") { [Environment]::SetEnvironmentVariable("Path", "$pfad;$ziel", "User") }
+```
+
+Auf ARM-Geräten (z. B. Surface Pro X) `immojump-windows-arm64.exe` laden.
+Derselbe Download aktualisiert eine vorhandene Installation. Die Prüfsumme
+steht in `SHA256SUMS.txt` am Release; vergleichen mit
+`Get-FileHash "$ziel\immojump.exe"`.
+
+Die Konfiguration liegt unter `%USERPROFILE%\.config\immojump\config.json` —
+PowerShell, cmd und Git Bash teilen sich dieselbe Datei.
+
 ### Aus dem Quellcode
 
 ```bash
@@ -83,7 +108,7 @@ go install github.com/immoJUMP/immojump-cli/cmd/immojump@latest
 ```
 
 Oder im Klon `make install` (nach `$GOBIN` bzw. `$GOPATH/bin`).
-`make release-build` baut alle vier Binaries nach `dist/`.
+`make release-build` baut alle sechs Binaries (Linux, macOS, Windows) nach `dist/`.
 
 ## Schnellstart
 

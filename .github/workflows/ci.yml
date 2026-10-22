@@ -2,7 +2,8 @@ name: CI
 
 # Ein Workflow, drei Stufen — in dieser Reihenfolge:
 #
-#   test           bei jedem PR und bei jedem Push auf main
+#   test           bei jedem PR und bei jedem Push auf main (dazu
+#                  test-windows: dieselben Tests auf einem Windows-Runner)
 #   release-please nur auf main, erst nach grünen Tests: pflegt den Release-PR
 #                  (CHANGELOG + Versions-Bump); der Merge erzeugt das Release
 #   release-assets nur wenn dabei ein Release entstanden ist: hängt die
@@ -35,6 +36,50 @@ jobs:
       - name: Lint, Tests, Referenz-Abgleich
         run: make ci
 
+  # Die Windows-Binaries gehen ans Release — also laufen die Tests auch auf
+  # Windows. Lint und docs-check sind plattformunabhängig und bleiben bei
+  # `test`. Der Smoke-Test prüft den Weg eines PowerShell-Nutzers: kein HOME,
+  # die Konfiguration liegt unter %USERPROFILE%, und `context use` schreibt sie
+  # atomar (Temp-Datei + Rename) zurück.
+  test-windows:
+    name: Tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet und Tests
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Smoke-Test in PowerShell (ohne HOME)
+        shell: pwsh
+        run: |
+          go build -o immojump.exe ./cmd/immojump
+          Remove-Item Env:HOME, Env:XDG_CONFIG_HOME, Env:IMMOJUMP_CONFIG -ErrorAction SilentlyContinue
+          $ordner = Join-Path $env:USERPROFILE ".config\immojump"
+          New-Item -ItemType Directory -Force $ordner | Out-Null
+          '{"contexts":{"ci":{"base_url":"https://immojump.de","token":"x"}}}' |
+            Set-Content -Encoding utf8NoBOM (Join-Path $ordner "config.json")
+
+          .\immojump.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "--version endet mit Exit $LASTEXITCODE" }
+
+          .\immojump.exe context use ci
+          if ($LASTEXITCODE -ne 0) { throw "context use endet mit Exit $LASTEXITCODE" }
+
+          $aktuell = .\immojump.exe context current | ConvertFrom-Json
+          if ($aktuell.current_context -ne "ci") {
+            throw "Context 'ci' aus %USERPROFILE% erwartet, bekommen: $($aktuell | ConvertTo-Json -Compress)"
+          }
+          Write-Host "Konfiguration gefunden und geschrieben: $($aktuell.config)"
+
   # Der Installationsweg ist das, was Kunden tatsaechlich benutzen — er wird
   # deshalb wirklich ausgefuehrt, nicht nur syntaktisch geprueft. Geprueft wird
   # dabei das aktuell VEROEFFENTLICHTE Release (das Skript zeigt auf "latest"),
@@ -62,7 +107,7 @@ jobs:
 
   release-please:
     if: github.event_name == 'push'
-    needs: test
+    needs: [test, test-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write

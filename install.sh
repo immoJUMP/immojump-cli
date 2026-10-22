@@ -37,7 +37,13 @@ architektur="$(uname -m)"
 case "$betriebssystem" in
 Linux) os="linux" ;;
 Darwin) os="darwin" ;;
-*) fehler "Nicht unterstuetztes System: $betriebssystem. Binaries gibt es fuer Linux und macOS." ;;
+MINGW* | MSYS* | CYGWIN*)
+	# Bewusst keine Installation: Das Ziel laege nur auf dem PATH dieser Shell,
+	# nicht auf dem von PowerShell und cmd.
+	fehler "Windows erkannt ($betriebssystem). Dieses Skript ist fuer Linux und macOS.
+Das Windows-Binary direkt laden (PowerShell-Anleitung im README):
+  https://github.com/${REPO}/releases/latest/download/immojump-windows-amd64.exe" ;;
+*) fehler "Nicht unterstuetztes System: $betriebssystem. Binaries gibt es fuer Linux, macOS und Windows." ;;
 esac
 
 case "$architektur" in
