@@ -427,6 +427,30 @@ func abortedUpload(err error, batches int, files, first []localFile) error {
 	return &out
 }
 
+// unitIgnored zählt hochgeladene Dokumente, die die angeforderte unit_id
+// nicht tragen — eine Instanz ohne Unterstützung verwirft das Feld still.
+func unitIgnored(unit string, docs []map[string]any) []any {
+	if unit == "" {
+		return nil
+	}
+	var ids []any
+	for _, doc := range docs {
+		if stringID(doc["unit_id"]) != unit {
+			ids = append(ids, doc["id"])
+		}
+	}
+	return ids
+}
+
+func unitIgnoredErr(unit string, ids []any) *api.Error {
+	return &api.Error{
+		Message: fmt.Sprintf("%d Dokument(e) tragen nicht die angeforderte unit_id %s — die Instanz hat --unit-id offenbar ignoriert; "+
+			"zuordnen mit documents set-unit <id> --unit-id %s.", len(ids), unit, unit),
+		Code: "UNIT_ID_IGNORED", Exit: 1,
+		Details: map[string]any{"unit_id_requested": unit, "documents": ids},
+	}
+}
+
 // mayHaveBeenStored: Nach 5xx, Netzwerkfehler oder Timeout ist offen, ob der
 // Server den Stapel gespeichert hat. 413 und lokale Fehler lehnen vorher ab.
 func mayHaveBeenStored(err error) bool {
@@ -547,6 +571,11 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		if raw := res.Header.Get("X-Upload-Empty-Files"); raw != "" {
 			_ = decodeJSONExact([]byte(raw), &empty)
 		}
+		var docs []map[string]any
+		_ = decodeJSONExact(res.Body, &docs)
+		if ids := unitIgnored(unit, docs); len(ids) > 0 && len(failed)+len(empty) == 0 {
+			return r.fail(unitIgnoredErr(unit, ids))
+		}
 		if len(failed)+len(empty) > 0 {
 			details := map[string]any{"file": file.path}
 			if len(failed) > 0 {
@@ -567,6 +596,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 	heuristicWarned := false
 	// stopErr ist der Fehler, der den Lauf beendet hat — sein Exit-Code gilt.
 	var stopErr error
+	var unitIgnoredIDs []any
 	report := uploadReport{Uploaded: []uploadedDoc{}, Duplicates: []map[string]any{}, Failed: []failedFile{}, Empty: []string{}}
 	sendable := make([]localFile, 0, len(files))
 	for _, file := range files {
@@ -661,6 +691,14 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			}
 			return matcher.match(name)
 		}
+		if ids := unitIgnored(unit, parsed.Documents); len(ids) > 0 {
+			if len(unitIgnoredIDs) == 0 {
+				_ = output.WriteWarning(r.stderr, fmt.Sprintf(
+					"Die Instanz hat --unit-id %s nicht übernommen (Dokumente ohne diese unit_id) — Zuordnung fehlt.", unit),
+					map[string]any{"unit_id_requested": unit})
+			}
+			unitIgnoredIDs = append(unitIgnoredIDs, ids...)
+		}
 		for _, doc := range parsed.Documents {
 			path := locate(doc, stringID(doc["dateiname"]))
 			report.Uploaded = append(report.Uploaded, uploadedDoc{ID: doc["id"], Dateiname: doc["dateiname"], File: path})
@@ -706,6 +744,9 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 	}
 	if stopErr != nil {
 		return r.fail(stopErr)
+	}
+	if len(unitIgnoredIDs) > 0 && len(report.Failed)+len(report.Empty) == 0 {
+		return r.fail(unitIgnoredErr(unit, unitIgnoredIDs))
 	}
 	if len(report.Failed)+len(report.Empty) > 0 {
 		return r.fail(&api.Error{
