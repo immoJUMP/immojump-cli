@@ -1175,10 +1175,12 @@ func TestUploadUnreadableSuccessBodyMayExist(t *testing.T) {
 
 // TestUploadZipPrecheckIgnoresForgedEntryCount: Die Eintragszahl im
 // End-of-Central-Directory ist nur 16 Bit breit. 65.536 Einträge mit Zahl 0
-// passierten die Grenze, und archive/zip las sie alle ein (Codex, letzte
-// Runde) — größere Varianten kosten Gigabytes. Gezählt wird, was tatsächlich
-// im Verzeichnis steht.
+// passierten die Grenze, und archive/zip las sie alle ein (Codex) — größere
+// Varianten kosten Gigabytes. Über zipCheckMaxBytes liest der Check nichts.
 func TestUploadZipPrecheckIgnoresForgedEntryCount(t *testing.T) {
+	old := zipCheckMaxBytes
+	zipCheckMaxBytes = 1 << 20
+	defer func() { zipCheckMaxBytes = old }()
 	root := dataroom(t, map[string]string{})
 	var dir bytes.Buffer
 	const entries = 1 << 16
@@ -1200,6 +1202,39 @@ func TestUploadZipPrecheckIgnoresForgedEntryCount(t *testing.T) {
 	h := newHarness(t)
 	h.respond = `[]`
 	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "gefaelscht.zip")); code != 0 || h.last == nil {
-		t.Errorf("über der Grenze ungeprüft senden erwartet, got %d (%s)", code, stderr)
+		t.Errorf("über der Größengrenze ungeprüft senden erwartet, got %d (%s)", code, stderr)
+	}
+}
+
+// TestUploadZipPrecheckKeepsRealArchives: Ein eigener Parser des Verzeichnisses
+// hielt echte ZIPs für leer (vorangestellte Daten, EOCD-Signatur im Kommentar)
+// und stürzte bei Namen über 256 Byte ab (Codex). Diese Fälle laufen über
+// archive/zip und werden gesendet.
+func TestUploadZipPrecheckKeepsRealArchives(t *testing.T) {
+	root := dataroom(t, map[string]string{})
+	langerName := strings.Repeat("a", 300) + ".pdf"
+	writeZip(t, filepath.Join(root, "lang.zip"), map[string]string{langerName: "%PDF-1 Inhalt"})
+	writeZip(t, filepath.Join(root, "basis.zip"), map[string]string{"vertrag.pdf": "%PDF-1 Inhalt"})
+	basis, err := os.ReadFile(filepath.Join(root, "basis.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Selbstentpackend: Daten vor dem Archiv, mit einer Verzeichnis-Signatur darin.
+	sfx := append([]byte("MZ\x00\x00PK\x01\x02"+strings.Repeat("\x00", 120)), basis...)
+	if err := os.WriteFile(filepath.Join(root, "sfx.zip"), sfx, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"lang.zip", "sfx.zip"} {
+		h := newHarness(t)
+		h.respond = `[]`
+		if code, _, stderr := h.run("documents", "upload", filepath.Join(root, name)); code != 0 || h.last == nil {
+			t.Errorf("%s: senden erwartet, got %d (%s)", name, code, stderr)
+		}
+	}
+	leer := strings.Repeat("b", 300) + ".pdf"
+	writeZip(t, filepath.Join(root, "lang-leer.zip"), map[string]string{leer: ""})
+	h := newHarness(t)
+	if code, _, _ := h.run("documents", "upload", filepath.Join(root, "lang-leer.zip")); code != 1 || h.last != nil {
+		t.Errorf("leeres ZIP mit langem Namen: Exit 1 ohne Request erwartet, got %d", code)
 	}
 }
