@@ -584,7 +584,7 @@ Einheiten aus einer Mieterliste anlegen oder aktualisieren (in Stapeln, Abgleich
   - Erneut ausführen ist sicher: Einheiten mit id oder extern_id werden wiedergefunden und nur geändert, was mitkommt. Zeilen ohne beides legt jeder Lauf neu an.
   - Jeder Stapel ist für sich alles oder nichts. Scheitert Stapel k, sind die Stapel davor gespeichert (committed_batches in der Fehlerzeile); errors[].index zeigt in die Datei, line auf die Zeile. Nach der Korrektur einfach die ganze Datei erneut importieren.
   - Eine extern_id, die in der Datei doppelt steht, bricht vor dem ersten Stapel ab (Exit 11).
-  - CSV: Kopfzeile aus den Feldnamen; leere Zelle = Feld weglassen; livingspace, rooms, ist_rent, soll_rent, soll_rent2 und order werden Zahlen, alles andere bleibt Text.
+  - CSV: Kopfzeile aus den Feldnamen; leere Zelle = Feld weglassen; livingspace, rooms, ist_rent, soll_rent, soll_rent2 und order werden Zahlen, alles andere bleibt Text. Zahlen streng: ohne Schalter nur 62.5, mit --decimal-comma nur 62,5 oder 1.250,50; „1.250“ in einer ;-CSV ohne Schalter ist mehrdeutig. Jede Abweichung: Exit 11 mit Zeile und Spalte, bevor etwas gesendet wird.
   - --dry-run prüft jeden Stapel einzeln: Anlagen aus Stapel 1 sieht Stapel 2 dabei nicht.
   - Stapel werden bei 429/502/503/504 und Netzwerkfehlern wiederholt (--retries), aber nur, wenn jede Zeile id oder extern_id trägt.
 - **Beispiel:** `immojump units import 5 --file mieter.ndjson --dry-run`

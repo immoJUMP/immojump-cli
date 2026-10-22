@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -73,13 +74,14 @@ func parseUnitsCSV(raw []byte, delimiter string, decimalComma bool) ([]record, e
 				object[column] = value
 				continue
 			}
-			number, ok := parseCSVNumber(value, decimalComma)
-			if !ok {
-				hint := " (Dezimalkomma? --decimal-comma)"
-				if decimalComma {
-					hint = ""
+			number, problem := parseCSVNumber(value, decimalComma, comma)
+			if problem != "" {
+				return nil, &api.Error{
+					Message: fmt.Sprintf("Zeile %d, Spalte %s: %q %s — es wurde nichts gesendet.", line, column, value, problem),
+					Code:    "CSV_INVALID_NUMBER",
+					Exit:    11,
+					Details: map[string]any{"line": line, "column": column, "value": value},
 				}
-				return nil, usageErr("Zeile %d, Spalte %s: %q ist keine Zahl%s", line, column, value, hint)
 			}
 			object[column] = number
 		}
@@ -112,16 +114,37 @@ func csvDelimiter(raw []byte, explicit string) (rune, error) {
 	return ',', nil
 }
 
-// parseCSVNumber macht aus „62.5" eine JSON-Zahl, mit decimalComma aus
-// „62,5" bzw. „1.250,50".
-func parseCSVNumber(value string, decimalComma bool) (json.Number, bool) {
-	value = strings.ReplaceAll(value, " ", "")
-	value = strings.ReplaceAll(value, " ", "")
+// Zahlenformate der CSV — streng: Was nicht genau passt, wird abgelehnt
+// statt umgedeutet („62.5“ mit --decimal-comma wäre sonst 625).
+var (
+	plainNumber     = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
+	commaNumber     = regexp.MustCompile(`^-?\d+(,\d+)?$`)
+	groupedComma    = regexp.MustCompile(`^-?\d{1,3}(\.\d{3})+(,\d+)?$`)
+	germanThousands = regexp.MustCompile(`^\d{1,3}(\.\d{3})+$`)
+)
+
+// parseCSVNumber liefert die JSON-Zahl oder, warum der Wert keine ist.
+//
+// Mit decimalComma: „62,5“, „1250“ oder mit Tausenderpunkten „1.250,50“.
+// Ohne: nur „62.5“. In einer ;-CSV ohne Schalter ist „1.250“ mehrdeutig
+// (1,25 oder 1250?) und wird abgelehnt.
+func parseCSVNumber(value string, decimalComma bool, comma rune) (json.Number, string) {
 	if decimalComma {
-		value = strings.ReplaceAll(value, ".", "")
-		value = strings.ReplaceAll(value, ",", ".")
+		if !commaNumber.MatchString(value) && !groupedComma.MatchString(value) {
+			return "", "ist keine Zahl im deutschen Format (erwartet z. B. 62,5 oder 1.250,50)"
+		}
+		normalized := strings.ReplaceAll(strings.ReplaceAll(value, ".", ""), ",", ".")
+		number, _ := parseNumber(normalized)
+		return number, ""
 	}
-	return parseNumber(value)
+	if comma == ';' && germanThousands.MatchString(value) {
+		return "", "ist mehrdeutig (Tausenderpunkt oder Dezimalpunkt?) — deutsche Zahlen mit --decimal-comma lesen"
+	}
+	if !plainNumber.MatchString(value) {
+		return "", "ist keine Zahl (Dezimalpunkt erwartet; deutsches Format mit --decimal-comma)"
+	}
+	number, _ := parseNumber(value)
+	return number, ""
 }
 
 // importSummary ist die Ausgabe von units import — Reihenfolge fest.

@@ -316,9 +316,12 @@ Zwei Regeln gelten für alle Stapel-Befehle:
 
 `units import` liest NDJSON, ein JSON-Array oder CSV und schickt Stapel zu
 höchstens 500 an `POST …/units/bulk`. Die CSV-Spalten `livingspace`, `rooms`,
-`ist_rent`, `soll_rent`, `soll_rent2` und `order` werden Zahlen (mit
-`--decimal-comma` auch `1.250,50`), alles andere bleibt Text — eine `extern_id`
-„001" darf nicht zu `1` werden. Eine `extern_id`, die in der Datei doppelt
+`ist_rent`, `soll_rent`, `soll_rent2` und `order` werden Zahlen, alles andere
+bleibt Text — eine `extern_id` „001" darf nicht zu `1` werden. Zahlen werden
+**streng** gelesen: ohne Schalter nur `62.5`, mit `--decimal-comma` nur `62,5`
+oder `1.250,50`. „1.250" in einer `;`-CSV ohne Schalter ist mehrdeutig und wird
+abgelehnt; „62.5" mit `--decimal-comma` wäre sonst still 625 geworden. Jede
+Abweichung endet mit Exit 11, Zeile und Spalte, bevor etwas gesendet wird. Eine `extern_id`, die in der Datei doppelt
 steht, bricht vorab ab: Das Backend erkennt Duplikate nur innerhalb eines
 Stapels, über Stapel hinweg überschriebe der spätere Eintrag still den
 früheren. Ein Stapel gilt nur dann als idempotent (und wird wiederholt), wenn
