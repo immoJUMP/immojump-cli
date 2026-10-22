@@ -334,6 +334,9 @@ type uploadedDoc struct {
 type failedFile struct {
 	File    string `json:"file"`
 	Message string `json:"message"`
+	// MayExist: Der Stapel scheiterte nach dem Senden (5xx, Netzwerk,
+	// Timeout) — der Server kann die Datei trotzdem gespeichert haben.
+	MayExist bool `json:"may_exist,omitempty"`
 }
 
 // backendReport ist die Antwort mit report=true.
@@ -422,6 +425,16 @@ func abortedUpload(err error, batches int, files, first []localFile) error {
 	details["files_not_sent"] = len(files) - len(first)
 	out.Details = details
 	return &out
+}
+
+// mayHaveBeenStored: Nach 5xx, Netzwerkfehler oder Timeout ist offen, ob der
+// Server den Stapel gespeichert hat. 413 und lokale Fehler lehnen vorher ab.
+func mayHaveBeenStored(err error) bool {
+	var apiErr *api.Error
+	if !errors.As(err, &apiErr) || apiErr.Exit != 0 {
+		return false
+	}
+	return apiErr.Status == 0 || apiErr.Status >= 500
 }
 
 func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved config.Resolved) int {
@@ -613,6 +626,11 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 				break
 			}
 			failBatch(batch, err.Error())
+			if mayHaveBeenStored(err) {
+				for j := len(report.Failed) - len(batch); j < len(report.Failed); j++ {
+					report.Failed[j].MayExist = true
+				}
+			}
 			continue
 		}
 		parsed, err := parseUploadResponse(res)

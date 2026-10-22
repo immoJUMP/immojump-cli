@@ -825,3 +825,33 @@ func TestUploadEmptyArchiveMemberIsNotTheLooseFile(t *testing.T) {
 		t.Errorf("leeres Mitglied gehört zum Archiv, got %v", out.Empty)
 	}
 }
+
+// TestUploadMarksPossiblyStoredFiles: Nach 5xx oder Netzwerkfehler kann der
+// Server die Dateien trotzdem gespeichert haben. Der Bericht sagt das
+// (may_exist), statt sie als sicher fehlend zu melden; nach 413 oder einer
+// lokalen Ablehnung ist nichts gespeichert.
+func TestUploadMarksPossiblyStoredFiles(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B"})
+	h := newHarness(t)
+	b := &uploadBackend{fail: func(n int) *reply {
+		switch n {
+		case 1:
+			return &reply{status: 504, body: `{"message":"Gateway Timeout"}`}
+		case 2:
+			return &reply{status: 413, body: `{"message":"Request Entity Too Large"}`}
+		}
+		return nil
+	}}
+	h.handle = b.handle
+	code, stdout, _ := h.run("documents", "upload", root, "--batch-files", "1")
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d", code)
+	}
+	var out struct {
+		Failed []map[string]any `json:"failed"`
+	}
+	_ = json.Unmarshal([]byte(stdout), &out)
+	if len(out.Failed) != 2 || out.Failed[0]["may_exist"] != true || out.Failed[1]["may_exist"] != nil {
+		t.Errorf("a.pdf (504) mit may_exist, b.pdf (413) ohne erwartet, got %v", out.Failed)
+	}
+}
