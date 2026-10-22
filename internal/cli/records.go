@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -119,6 +120,20 @@ func parseJSONRecords(raw []byte, wrapperKey string) ([]record, error) {
 		var wrapper map[string]json.RawMessage
 		if errWrap := decodeOneJSON(raw, &wrapper); errWrap != nil || wrapper[wrapperKey] == nil {
 			return nil, usageErr("JSON-Eingabe muss genau ein Array von Objekten sein (oder genau ein {%q: [...]})", wrapperKey)
+		}
+		// Im Umschlag gilt nur das Array. Ein dry_run oder model aus der
+		// Datei würde sonst still übergangen — {"dry_run":true} schrieb echt.
+		var extra []string
+		for key := range wrapper {
+			if key != wrapperKey {
+				extra = append(extra, key)
+			}
+		}
+		if len(extra) > 0 {
+			sort.Strings(extra)
+			return nil, usageErr("Im Umschlag ist nur %q erlaubt, gefunden außerdem: %s — "+
+				"Optionen wie dry_run gehen nur über Flags (--dry-run), nie aus der Datei",
+				wrapperKey, strings.Join(extra, ", "))
 		}
 		if err := decodeJSONExact(wrapper[wrapperKey], &list); err != nil {
 			return nil, usageErr("%q muss ein Array von Objekten sein", wrapperKey)
