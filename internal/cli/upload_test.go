@@ -290,26 +290,34 @@ func TestUploadContinuesAfterServerErrorBatch(t *testing.T) {
 	}
 }
 
+// TestUploadStopsOnClientErrorAfterProgress: Ein 401/403/429 ab Stapel 2
+// beendet den Lauf — mit dem Exit-Code genau dieses Fehlers (Agenten
+// branchen darauf), der Bericht bleibt auf stdout.
 func TestUploadStopsOnClientErrorAfterProgress(t *testing.T) {
-	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B", "c.pdf": "C"})
-	h := newHarness(t)
-	b := &uploadBackend{fail: func(n int) *reply {
-		if n == 2 {
-			return &reply{status: 403, body: `{"message":"Keine Berechtigung."}`}
+	for status, exit := range map[int]int{401: 4, 403: 6, 429: 7} {
+		root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B", "c.pdf": "C"})
+		h := newHarness(t)
+		b := &uploadBackend{fail: func(n int) *reply {
+			if n == 2 {
+				return &reply{status: status, body: `{"message":"Halt."}`}
+			}
+			return nil
+		}}
+		h.handle = b.handle
+		code, stdout, stderr := h.run("documents", "upload", root, "--batch-files", "1", "--retries", "0")
+		if code != exit {
+			t.Fatalf("HTTP %d: Exit %d erwartet, got %d (%s)", status, exit, code, stderr)
 		}
-		return nil
-	}}
-	h.handle = b.handle
-	code, stdout, _ := h.run("documents", "upload", root, "--batch-files", "1")
-	if code != 1 {
-		t.Fatalf("Exit 1 erwartet, got %d", code)
-	}
-	if len(b.batches) != 2 {
-		t.Errorf("nach 403 keine weiteren Stapel erwartet, got %d", len(b.batches))
-	}
-	out := decodeUpload(t, stdout)
-	if len(out.Uploaded) != 1 || len(out.Failed) != 2 {
-		t.Errorf("a hochgeladen, b und c fehlgeschlagen erwartet, got %+v", out)
+		if len(b.batches) != 2 {
+			t.Errorf("HTTP %d: nach dem Fehler keine weiteren Stapel erwartet, got %d", status, len(b.batches))
+		}
+		out := decodeUpload(t, stdout)
+		if len(out.Uploaded) != 1 || len(out.Failed) != 2 {
+			t.Errorf("HTTP %d: a hochgeladen, b und c fehlgeschlagen erwartet, got %+v", status, out)
+		}
+		if line := errorLine(t, stderr); line["status"] != float64(status) || line["message"] != "Halt." {
+			t.Errorf("HTTP %d: Fehlerzeile des Backends erwartet, got %v", status, line)
+		}
 	}
 }
 
