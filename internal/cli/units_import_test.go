@@ -526,3 +526,28 @@ func TestUnitsImportWrapperRejectsOtherKeys(t *testing.T) {
 		t.Errorf("fields-set-Umschlag mit model: Exit 2 ohne Request erwartet, got %d (%s)", code, stderr)
 	}
 }
+
+// TestUnitsImportFailureSummaryKeepsComplete: --fields created durfte das
+// complete:false der Teilsumme nicht wegprojizieren — sonst sieht die
+// Teilsumme aus wie die ganze.
+func TestUnitsImportFailureSummaryKeepsComplete(t *testing.T) {
+	h := newHarness(t)
+	b := &bulkBackend{fail: func(n int) *reply {
+		switch n {
+		case 1:
+			return &reply{status: 502, body: `{"message":"kurz weg"}`}
+		case 3:
+			return &reply{status: 400, body: `{"message":"kaputt","errors":[{"index":0,"message":"x"}]}`}
+		}
+		return nil
+	}}
+	h.handle = b.handle
+	file := writeTemp(t, "m.ndjson", ndjsonUnits(4))
+	code, stdout, _ := h.run("units", "import", "5", "--file", file, "--batch-size", "2", "--fields", "created")
+	if code != 11 {
+		t.Fatalf("Exit 11 erwartet, got %d", code)
+	}
+	if !sameJSON(t, stdout, `{"created":2,"complete":false,"ambiguous_retry":true}`) {
+		t.Errorf("created plus complete und ambiguous_retry erwartet, got %s", stdout)
+	}
+}
