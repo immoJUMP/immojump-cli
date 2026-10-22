@@ -323,7 +323,7 @@ höchstens 500 an `POST …/units/bulk`. Die CSV-Spalten `livingspace`, `rooms`,
 bleibt Text — eine `extern_id` „001" darf nicht zu `1` werden. Zahlen werden
 **streng** gelesen: ohne Schalter nur `62.5`, mit `--decimal-comma` nur `62,5`
 oder `1.250,50`. „1.250" in einer `;`-CSV ohne Schalter ist mehrdeutig und wird
-abgelehnt; „62.5" mit `--decimal-comma` wäre sonst still 625 geworden. Jede
+abgelehnt (auch negativ, „-1.250"); „62.5" mit `--decimal-comma` wäre sonst still 625 geworden. Jede
 Abweichung endet mit Exit 11, Zeile und Spalte, bevor etwas gesendet wird. Eine `id` oder `extern_id`, die in der Datei
 doppelt steht, bricht vorab ab: Das Backend erkennt Duplikate nur innerhalb eines
 Stapels, über Stapel hinweg überschriebe der spätere Eintrag still den
