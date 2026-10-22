@@ -616,13 +616,16 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 				return r.fail(err)
 			}
 			if !continuesAfter(err) {
+				// Der Bericht bleibt — auch beim ersten Stapel: lokal
+				// Abgelehntes (zu groß, unlesbar) und alles nicht Gesendete
+				// steht unter failed, der Fehler mit seinem Exit-Code auf stderr.
+				stopErr = err
 				if i == 0 {
-					return r.fail(abortedUpload(err, len(batches), files, batches[0]))
+					stopErr = abortedUpload(err, len(batches), files, batches[0])
 				}
 				for _, rest := range batches[i:] {
 					failBatch(rest, err.Error())
 				}
-				stopErr = err
 				break
 			}
 			failBatch(batch, err.Error())
