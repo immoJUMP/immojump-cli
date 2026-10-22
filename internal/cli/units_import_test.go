@@ -340,8 +340,18 @@ func TestUnitsImportReportsFailedBatch(t *testing.T) {
 	if code != 11 {
 		t.Fatalf("Exit 11 erwartet, got %d (%s)", code, stderr)
 	}
-	if stdout != "" {
-		t.Errorf("stdout soll leer bleiben, got %q", stdout)
+	// Stapel 1 ist gespeichert — seine Summe gehört auf stdout.
+	var partial struct {
+		Created  int   `json:"created"`
+		Batches  int   `json:"batches"`
+		Complete bool  `json:"complete"`
+		Items    []any `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &partial); err != nil {
+		t.Fatalf("Teilsumme auf stdout erwartet: %v (%q)", err, stdout)
+	}
+	if partial.Created != 2 || partial.Batches != 1 || partial.Complete || len(partial.Items) != 2 {
+		t.Errorf("Teilsumme von Stapel 1 mit complete=false erwartet, got %+v", partial)
 	}
 	if len(b.bodies) != 2 {
 		t.Errorf("nach dem Fehler keine weiteren Stapel, got %d", len(b.bodies))
@@ -451,5 +461,39 @@ func TestUnitsImportRejectsDuplicateIDsAcrossBatches(t *testing.T) {
 	entry := errs[0].(map[string]any)
 	if entry["index"] != float64(2) || entry["id"] != "u-1" || entry["line"] != float64(3) {
 		t.Errorf("Duplikat id u-1 an index 2, Zeile 3 erwartet, got %v", entry)
+	}
+}
+
+// TestUnitsImportFlagsAmbiguousRetry: Nach 502/503/504 oder Netzwerkfehler
+// kann der erste Versuch gespeichert haben — der zweite meldet dann
+// „unchanged“ statt „created“. Die Summe sagt, dass die Zahlen unsicher sind.
+// Nach 429 lief nichts: keine Markierung.
+func TestUnitsImportFlagsAmbiguousRetry(t *testing.T) {
+	for status, ambiguous := range map[int]bool{502: true, 429: false} {
+		h := newHarness(t)
+		b := &bulkBackend{fail: func(n int) *reply {
+			if n == 1 {
+				return &reply{status: status, body: `{"message":"kurz weg"}`}
+			}
+			return nil
+		}}
+		h.handle = b.handle
+		file := writeTemp(t, "mieter.ndjson", ndjsonUnits(3))
+		code, stdout, stderr := h.run("units", "import", "5", "--file", file, "--batch-size", "2")
+		if code != 0 {
+			t.Fatalf("HTTP %d: Exit 0 erwartet, got %d (%s)", status, code, stderr)
+		}
+		var out struct {
+			AmbiguousRetry   bool  `json:"ambiguous_retry"`
+			AmbiguousBatches []int `json:"ambiguous_batches"`
+			Complete         bool  `json:"complete"`
+		}
+		_ = json.Unmarshal([]byte(stdout), &out)
+		if out.AmbiguousRetry != ambiguous || !out.Complete {
+			t.Errorf("HTTP %d: ambiguous_retry=%v und complete erwartet, got %+v", status, ambiguous, out)
+		}
+		if ambiguous && fmt.Sprint(out.AmbiguousBatches) != "[1]" {
+			t.Errorf("HTTP %d: Stapel 1 als unsicher erwartet, got %v", status, out.AmbiguousBatches)
+		}
 	}
 }

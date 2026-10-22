@@ -79,6 +79,10 @@ type Response struct {
 	ContentType string
 	Header      http.Header
 	Body        []byte
+	// AmbiguousRetry: Ein früherer Versuch dieses Aufrufs scheiterte so, dass
+	// er angekommen sein kann (5xx, Netzwerk) — die Antwort beschreibt dann
+	// womöglich die Wiederholung, nicht den ersten Versuch.
+	AmbiguousRetry bool
 }
 
 // Client spricht mit genau einer immoJUMP-Instanz.
@@ -236,8 +240,12 @@ func (c *Client) Do(req Request) (*Response, error) {
 	if c.Retries > 0 && (idempotent || req.RetryRateLimit) {
 		attempts += c.Retries
 	}
+	ambiguous := false
 	for attempt := 1; ; attempt++ {
 		res, err := c.doOnce(req, method, target)
+		if res != nil {
+			res.AmbiguousRetry = ambiguous
+		}
 		var apiErr *Error
 		if err == nil || attempt >= attempts || !errors.As(err, &apiErr) || !apiErr.Retryable() {
 			return res, err
@@ -249,6 +257,10 @@ func (c *Client) Do(req Request) (*Response, error) {
 			// Ein Timeout sagt nicht, ob der Schreibaufruf angekommen ist —
 			// und eine Wiederholung hebelte --timeout aus.
 			return res, err
+		}
+		if apiErr.Status != http.StatusTooManyRequests {
+			// Nur 429 beweist, dass nichts passiert ist.
+			ambiguous = true
 		}
 		wait := retryWait(attempt, apiErr.RetryAfter)
 		if c.OnRetry != nil {
