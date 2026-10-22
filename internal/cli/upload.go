@@ -794,11 +794,6 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			continue
 		}
 		if err != nil {
-			if len(batches) == 1 && len(report.Failed) == 0 {
-				// Ein Stapel verhält sich wie ein einzelner Request: Fehler
-				// des Backends mit seinem Exit-Code, stdout leer.
-				return r.fail(err)
-			}
 			if !continuesAfter(err) {
 				// Der Bericht bleibt — auch beim ersten Stapel: lokal
 				// Abgelehntes (zu groß, unlesbar) und alles nicht Gesendete

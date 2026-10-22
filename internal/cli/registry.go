@@ -1069,7 +1069,7 @@ var Registry = []Spec{
 			"file im Bericht kommt aus sourceFile (der gesendete Name; bei Archiven das Archiv — alle Mitglieder zeigen auf die ZIP-Datei, auch leere unter empty; jedes Archiv geht deshalb in einem eigenen Stapel). Gleichnamige Dateien landen deshalb nie im selben Stapel. Ohne sourceFile (ältere Instanz) ordnet ein Namensvergleich zu, mit einer Warnung auf stderr.",
 			"Scheitert ein Stapel nach dem Senden (5xx, Netzwerk, Timeout), tragen seine Dateien unter failed may_exist: true — der Server kann sie gespeichert haben. Erneut ausführen ohne --allow-duplicate ist sicher: Gespeichertes kommt dann unter duplicates.",
 			"Uploads werden nie automatisch wiederholt. Erneut ausführen ist dank Duplikat-Erkennung sicher: Schon Hochgeladenes landet unter duplicates (nicht mit --allow-duplicate).",
-			"Nach 5xx oder Netzwerkfehler geht es mit dem nächsten Stapel weiter; jeder andere Fehler (z. B. 400 für eine fremde unit_id, 401, 403, 429) stoppt — mit dessen Exit-Code, der Bericht bleibt auf stdout. Mit nur einem Stapel endet der Aufruf wie ein einzelner Request mit dem Exit-Code des Fehlers.",
+			"Nach 5xx oder Netzwerkfehler geht es mit dem nächsten Stapel weiter; jeder andere Fehler (z. B. 400 für eine fremde unit_id, 401, 403, 429) stoppt — mit dessen Exit-Code, der Bericht bleibt auf stdout.",
 		},
 		Example: "immojump documents upload datenraum/RH-01 --recursive --immobilie-id 5",
 	},

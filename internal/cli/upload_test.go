@@ -1128,3 +1128,26 @@ func TestUploadZipPrecheckIsBounded(t *testing.T) {
 		t.Errorf("Größe vor dem ZIP-Check: FILE_TOO_LARGE erwartet, got %v", line)
 	}
 }
+
+// TestUploadSingleReportBatchFailureKeepsReport: Ein Ordner mit einem
+// einzigen Stapel, der nach dem Senden scheitert (503), endete mit nackter
+// Fehlerzeile — ohne Bericht, ohne may_exist.
+func TestUploadSingleReportBatchFailureKeepsReport(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B"})
+	h := newHarness(t)
+	h.status = 503
+	h.respond = `{"message":"Service Unavailable"}`
+	code, stdout, stderr := h.run("documents", "upload", root)
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d (%s)", code, stderr)
+	}
+	var out struct {
+		Failed []map[string]any `json:"failed"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("Bericht auf stdout erwartet: %v (%q)", err, stdout)
+	}
+	if len(out.Failed) != 2 || out.Failed[0]["may_exist"] != true {
+		t.Errorf("beide Dateien mit may_exist erwartet, got %v", out.Failed)
+	}
+}
