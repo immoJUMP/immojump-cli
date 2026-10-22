@@ -312,6 +312,16 @@ Zwei Regeln gelten für alle Stapel-Befehle:
 
 - **Erst prüfen, dann senden.** Was sich lokal feststellen lässt (kaputte
   Zeile, unbekannte `extern_id`), endet vor dem ersten Schreib-Request.
+- **Teilerfolg ist sichtbar.** `units import` trägt `complete` (false, wenn
+  ein Stapel scheiterte — die Summe der gespeicherten Stapel steht trotzdem
+  auf stdout, `complete` übersteht auch `--fields`) und `ambiguous_retry`
+  mit `ambiguous_batches`, wenn ein Stapel erst nach einem Versuch gelang,
+  der angekommen sein kann (5xx, Netzwerk; nicht 429) — dessen
+  `created`/`unchanged` können dann abweichen. `documents upload` markiert
+  Dateien eines nach dem Senden gescheiterten Stapels mit `may_exist: true`;
+  ein erneuter Lauf ohne `--allow-duplicate` ist sicher. Den Exit-Code
+  bestimmt der Fehler, der einen Lauf stoppt; ohne Stopp, aber mit
+  Fehlschlägen, ist es Exit 1.
 - **Fehler zeigen in die Datei.** Scheitert Stapel *k*, trägt die Fehlerzeile
   `committed_batches`, `batch`, `batch_offset`; in `errors[]` zeigt `index`
   in die Eingabe (`batch_index` ist der Wert des Backends, `line` die Zeile).
