@@ -356,14 +356,26 @@ func parseUploadResponse(res *api.Response) (backendReport, error) {
 		if err := decodeJSONExact(res.Body, &report.Documents); err != nil {
 			return report, err
 		}
-		header := func(name string, target any) {
+		header := func(name string, target any) error {
 			if raw := res.Header.Get(name); raw != "" {
-				_ = decodeJSONExact([]byte(raw), target)
+				if err := decodeJSONExact([]byte(raw), target); err != nil {
+					return fmt.Errorf("%s nicht lesbar: %v", name, err)
+				}
+			}
+			return nil
+		}
+		for _, h := range []struct {
+			name   string
+			target any
+		}{
+			{"X-Upload-Duplicate-Files", &report.Duplicates},
+			{"X-Upload-Failed-Files", &report.Failed},
+			{"X-Upload-Empty-Files", &report.Empty},
+		} {
+			if err := header(h.name, h.target); err != nil {
+				return report, err
 			}
 		}
-		header("X-Upload-Duplicate-Files", &report.Duplicates)
-		header("X-Upload-Failed-Files", &report.Failed)
-		header("X-Upload-Empty-Files", &report.Empty)
 		return report, nil
 	}
 	if trimmed == "" {
@@ -566,13 +578,24 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		var failed []map[string]any
 		var empty []string
 		if raw := res.Header.Get("X-Upload-Failed-Files"); raw != "" {
-			_ = decodeJSONExact([]byte(raw), &failed)
+			if err := decodeJSONExact([]byte(raw), &failed); err != nil {
+				// Unlesbar heißt nicht „nichts fehlgeschlagen“.
+				failed = []map[string]any{{"message": "X-Upload-Failed-Files nicht lesbar", "raw": shorten(raw, 200)}}
+			}
 		}
 		if raw := res.Header.Get("X-Upload-Empty-Files"); raw != "" {
-			_ = decodeJSONExact([]byte(raw), &empty)
+			if err := decodeJSONExact([]byte(raw), &empty); err != nil {
+				empty = []string{"X-Upload-Empty-Files nicht lesbar: " + shorten(raw, 200)}
+			}
 		}
 		var docs []map[string]any
-		_ = decodeJSONExact(res.Body, &docs)
+		if err := decodeJSONExact(res.Body, &docs); err != nil && unit != "" {
+			// Ohne lesbare Dokumentliste lässt sich die Zuordnung nicht prüfen.
+			return r.fail(&api.Error{
+				Message: "Antwort ist keine Dokumentliste — ob --unit-id übernommen wurde, lässt sich nicht prüfen: " + err.Error(),
+				Code:    "UNIT_ID_UNVERIFIED", Exit: 1,
+			})
+		}
 		if ids := unitIgnored(unit, docs); len(ids) > 0 && len(failed)+len(empty) == 0 {
 			return r.fail(unitIgnoredErr(unit, ids))
 		}
