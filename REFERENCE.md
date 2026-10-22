@@ -1132,7 +1132,7 @@ Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei (eine einz
   - `--max-file-mb <wert>` — Dateien über dieser Größe gar nicht senden, sondern unter failed (Default 250)
 - **Body:** Multipart-Upload im Feld `files[]` (gestreamt, je Datei mit Content-Type aus der Endung), dazu `organisation_id` aus der Konfiguration und `report=true`.
 - **Details:**
-  - Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code. Scheitern Teile (etwa Mitglieder eines ZIP) oder sind leer, steht das als JSON auf stderr und der Aufruf endet mit Exit 1. Eine leere Datei oder ein ZIP nur mit leeren Dateien geht gar nicht erst raus (Exit 1, UPLOAD_INCOMPLETE).
+  - Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code. Scheitern Teile (etwa Mitglieder eines ZIP) oder sind leer, steht das als JSON auf stderr und der Aufruf endet mit Exit 1. Eine leere Datei geht gar nicht erst raus (Exit 1, UPLOAD_INCOMPLETE); ob ein Archiv leer ist, entscheidet das Backend.
   - Ordner, mehrere Dateien oder --report: Ausgabe {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.
   - Exit 0 nur, wenn nichts fehlgeschlagen und nichts leer ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.
   - Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.
