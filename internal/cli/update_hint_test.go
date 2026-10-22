@@ -168,9 +168,42 @@ func TestUpdateHintKeepsExitCode(t *testing.T) {
 	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
 	u := newUpdateRun(t, "v0.4.0", release)
 	u.interactive = true
-	code, _, _ := u.run("quatsch")
+	code, _, stderr := u.run("quatsch")
 	if code != 2 {
 		t.Errorf("Exit 2 erwartet, got %d", code)
+	}
+	// Die Fehlerzeile bleibt die letzte auf stderr — kein Hinweis dahinter.
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	var last map[string]any
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &last); err != nil || last["error"] != true {
+		t.Errorf("letzte stderr-Zeile muss der Fehler sein, stderr %q", stderr)
+	}
+	if len(warningLines(t, stderr)) != 0 {
+		t.Errorf("kein Update-Hinweis nach einem Fehler, stderr %q", stderr)
+	}
+}
+
+// TestUpdateHintKeepsConfigNamedLikeState: Heißt die Konfiguration selbst
+// update-check.json, bleibt sie unangetastet — sonst wären Contexts und
+// Tokens weg.
+func TestUpdateHintKeepsConfigNamedLikeState(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	u := newUpdateRun(t, "v0.4.0", release)
+	u.interactive = true
+	cfg := filepath.Join(t.TempDir(), "update-check.json")
+	original := []byte(`{"current_context":"prod","contexts":{"prod":{"token":"geheim"}}}`)
+	if err := os.WriteFile(cfg, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	u.env["IMMOJUMP_CONFIG"] = cfg
+
+	u.run("version")
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != string(original) {
+		t.Errorf("Konfiguration überschrieben: %s", raw)
 	}
 }
 

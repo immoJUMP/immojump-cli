@@ -55,26 +55,33 @@ func updateStatePath(getenv func(string) string) string {
 	if cfg == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(cfg), "update-check.json")
+	state := filepath.Join(filepath.Dir(cfg), "update-check.json")
+	// IMMOJUMP_CONFIG darf jeden Dateinamen tragen — auch update-check.json.
+	// Dann gäbe es keinen eigenen Platz für den Stand; ihn zu schreiben
+	// überschriebe Contexts und Tokens.
+	if filepath.Clean(state) == filepath.Clean(cfg) {
+		return ""
+	}
+	return state
 }
 
 // startUpdateHint stößt den Abruf parallel zum Befehl an und liefert eine
 // Funktion, die nach dem Befehl wartet und gegebenenfalls den Hinweis
 // schreibt. Jeder Fehler bleibt still: Ein Hinweis darf keinen Aufruf
 // stören, und der nächste Versuch kommt ohnehin morgen.
-func (r *runner) startUpdateHint(args []string) func() {
+func (r *runner) startUpdateHint(args []string) func(code int) {
 	if !r.updateHintWanted(args) {
-		return func() {}
+		return func(int) {}
 	}
 	statePath := updateStatePath(r.getenv)
 	if statePath == "" {
-		return func() {}
+		return func(int) {}
 	}
 	now := r.now()
 	if raw, err := os.ReadFile(statePath); err == nil {
 		var state updateCheckState
 		if json.Unmarshal(raw, &state) == nil && now.Sub(state.CheckedAt) < updateHintInterval && !state.CheckedAt.After(now) {
-			return func() {}
+			return func(int) {}
 		}
 	}
 
@@ -83,7 +90,7 @@ func (r *runner) startUpdateHint(args []string) func() {
 	// nicht speichern, unterbleibt der Abruf ganz — sonst kostete jeder
 	// Aufruf erneut Wartezeit.
 	if !writeUpdateState(statePath, updateCheckState{CheckedAt: now}) {
-		return func() {}
+		return func(int) {}
 	}
 
 	done := make(chan string, 1)
@@ -94,7 +101,7 @@ func (r *runner) startUpdateHint(args []string) func() {
 		}
 		done <- latest
 	}()
-	return func() {
+	return func(code int) {
 		var latest string
 		select {
 		case latest = <-done:
@@ -103,6 +110,11 @@ func (r *runner) startUpdateHint(args []string) func() {
 		}
 		if latest != "" {
 			_ = writeUpdateState(statePath, updateCheckState{CheckedAt: now, Latest: latest})
+		}
+		// Nach einem Fehler bleibt die Fehlerzeile die letzte auf stderr —
+		// darauf verlassen sich Auswertungen; der Hinweis kommt morgen wieder.
+		if code != 0 {
+			return
 		}
 		if older, ok := versionOlder(r.version, latest); ok && older {
 			_ = output.WriteWarning(r.stderr, fmt.Sprintf(
