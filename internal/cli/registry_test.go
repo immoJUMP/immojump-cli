@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -221,32 +222,64 @@ func TestNoExampleUsesUnsupportedParameters(t *testing.T) {
 // Deals-Route liest die Organisation nur aus dem Query, der Header genügt ihr
 // nicht. Kennt die Registry die Route des Beispiels mit OrgQuery bzw. OrgBody,
 // muss das Beispiel den Parameter selbst mitschicken: Der Escape-Hatch ergänzt
-// ihn nicht.
+// ihn nicht. Geprüft wird der tatsächlich gebaute Request, nicht der Text —
+// `-q organisation_id=` ohne Wert schickt eine leere Organisation.
 func TestAPIExampleSendsTheOrgParameter(t *testing.T) {
 	spec, ok := Lookup("api", "")
 	if !ok {
 		t.Fatal("api fehlt in der Registry")
 	}
-	// immojump api <METHOD> <pfad> …
-	words := strings.Fields(spec.Example)
-	if len(words) < 4 {
-		t.Fatalf("Beispiel %q nennt keine Methode und keinen Pfad", spec.Example)
+	for _, problem := range apiExampleOrgProblems(t, spec.Example) {
+		t.Error(problem)
+	}
+
+	// Gegenproben: Beide Fassungen muss die Prüfung ablehnen.
+	for _, broken := range []string{
+		"immojump api GET /api/deals -q status_ids=7",
+		"immojump api GET /api/deals -q organisation_id= -q status_ids=7",
+	} {
+		if len(apiExampleOrgProblems(t, broken)) == 0 {
+			t.Errorf("die Prüfung lässt %q durch", broken)
+		}
+	}
+}
+
+// apiExampleOrgProblems führt ein api-Beispiel gegen den Test-Server aus
+// (<org-id> wird zu org-test) und meldet jede Route, deren OrgQuery bzw.
+// OrgBody im gesendeten Request nicht die Organisation trägt.
+func apiExampleOrgProblems(t *testing.T, example string) []string {
+	t.Helper()
+	words := strings.Fields(strings.ReplaceAll(example, "<org-id>", "org-test"))
+	if len(words) < 4 || words[0] != "immojump" || words[1] != "api" {
+		return []string{fmt.Sprintf("Beispiel %q nennt keine Methode und keinen Pfad", example)}
 	}
 	method, path := words[2], words[3]
+	h := newHarness(t)
+	if code, _, stderr := h.run(words[1:]...); code != 0 || h.last == nil {
+		return []string{fmt.Sprintf("Beispiel %q läuft nicht (Exit %d): %s", example, code, stderr)}
+	}
+	var problems []string
 	for _, target := range Registry {
 		if target.Local || target.Special == SpecialAPI ||
 			!strings.EqualFold(target.Method, method) || !matchPathTemplate(target.Path, path) {
 			continue
 		}
-		if target.OrgQuery != "" && !strings.Contains(spec.Example, "-q "+target.OrgQuery+"=") {
-			t.Errorf("Beispiel %q: %s %s liest die Organisation nur aus dem Query — -q %s=<org-id> fehlt",
-				spec.Example, method, path, target.OrgQuery)
+		if target.OrgQuery != "" && h.last.Query.Get(target.OrgQuery) != "org-test" {
+			problems = append(problems, fmt.Sprintf(
+				"Beispiel %q: %s %s liest die Organisation nur aus dem Query — -q %s=<org-id> fehlt oder ist leer (gesendet: %v)",
+				example, method, path, target.OrgQuery, h.last.Query))
 		}
-		if target.OrgBody != "" && !strings.Contains(spec.Example, "--set "+target.OrgBody+"=") {
-			t.Errorf("Beispiel %q: %s %s liest die Organisation nur aus dem Body — --set %s=<org-id> fehlt",
-				spec.Example, method, path, target.OrgBody)
+		if target.OrgBody != "" {
+			var body map[string]any
+			_ = json.Unmarshal([]byte(h.last.Body), &body)
+			if body[target.OrgBody] != "org-test" {
+				problems = append(problems, fmt.Sprintf(
+					"Beispiel %q: %s %s liest die Organisation nur aus dem Body — --set %s=<org-id> fehlt oder ist leer (gesendet: %s)",
+					example, method, path, target.OrgBody, h.last.Body))
+			}
 		}
 	}
+	return problems
 }
 
 // TestQueryHintsAreVisibleEverywhere: Ein Parameter, der nur im Code steht,
