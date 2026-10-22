@@ -476,6 +476,30 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		if err := r.render(res.Body, res.ContentType, flags); err != nil {
 			return r.fail(err)
 		}
+		// Ein einzelnes Archiv kann teilweise scheitern; das steht beim
+		// bisherigen Weg nur in den X-Upload-*-Headern.
+		var failed []map[string]any
+		var empty []string
+		if raw := res.Header.Get("X-Upload-Failed-Files"); raw != "" {
+			_ = decodeJSONExact([]byte(raw), &failed)
+		}
+		if raw := res.Header.Get("X-Upload-Empty-Files"); raw != "" {
+			_ = decodeJSONExact([]byte(raw), &empty)
+		}
+		if len(failed)+len(empty) > 0 {
+			details := map[string]any{"file": file.path}
+			if len(failed) > 0 {
+				details["failed"] = failed
+			}
+			if len(empty) > 0 {
+				details["empty"] = empty
+			}
+			return r.fail(&api.Error{
+				Message: fmt.Sprintf("%s: %d Datei(en) fehlgeschlagen, %d leer — Details hier, das Array des Backends auf stdout.",
+					file.path, len(failed), len(empty)),
+				Code: "UPLOAD_INCOMPLETE", Exit: 1, Details: details,
+			})
+		}
 		return 0
 	}
 

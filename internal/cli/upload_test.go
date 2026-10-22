@@ -701,3 +701,36 @@ func TestUploadWarnsOnceWithoutSourceFile(t *testing.T) {
 		t.Errorf("Heuristik soll weiter zuordnen, got %+v", out.Uploaded)
 	}
 }
+
+// TestUploadSingleArchiveReportsPartialFailure: Ein einzelnes ZIP geht über
+// den bisherigen Ein-Datei-Weg. Fehlgeschlagene oder leere Mitglieder stehen
+// dann nur in X-Upload-*-Headern — stdout bleibt das Array, aber Exit 0 wäre
+// gelogen.
+func TestUploadSingleArchiveReportsPartialFailure(t *testing.T) {
+	root := dataroom(t, map[string]string{"datenraum.zip": "PK"})
+	for name, header := range map[string]http.Header{
+		"failed": {"X-Upload-Failed-Files": {`[{"fileName":"kaputt.pdf","message":"Invalid PDF"}]`}},
+		"empty":  {"X-Upload-Empty-Files": {`["leer.pdf"]`}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			h.handle = func(rec *recorded) reply {
+				return reply{body: `[{"id":1,"dateiname":"vertrag.pdf"}]`, header: header}
+			}
+			code, stdout, stderr := h.run("documents", "upload", filepath.Join(root, "datenraum.zip"))
+			if code != 1 {
+				t.Fatalf("Exit 1 erwartet, got %d (%s)", code, stderr)
+			}
+			if strings.TrimSpace(stdout) != `[{"id":1,"dateiname":"vertrag.pdf"}]` {
+				t.Errorf("stdout bleibt das Array des Backends, got %q", stdout)
+			}
+			line := errorLine(t, stderr)
+			if line["code"] != "UPLOAD_INCOMPLETE" {
+				t.Errorf("UPLOAD_INCOMPLETE erwartet, got %v", line)
+			}
+			if _, ok := line[name]; !ok {
+				t.Errorf("Fehlerzeile soll %s als JSON tragen, got %v", name, line)
+			}
+		})
+	}
+}
