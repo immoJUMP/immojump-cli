@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -434,6 +435,9 @@ func TestUploadRejectsSymlinks(t *testing.T) {
 func TestUploadDropsUnreadableFileAndSendsTheRest(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("als root sind Dateirechte wirkungslos")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 0o000 entzieht unter Windows keine Leserechte")
 	}
 	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B"})
 	if err := os.Chmod(filepath.Join(root, "a.pdf"), 0o000); err != nil {

@@ -179,7 +179,11 @@ eine leere Variable zeigt und später wortlos ein fremdes Token benutzt.
 
 ### Wo die Konfiguration liegt
 
-`IMMOJUMP_CONFIG` > `XDG_CONFIG_HOME` > `HOME`. Fehlt alles drei — in
+`IMMOJUMP_CONFIG` > `XDG_CONFIG_HOME` > `HOME` > `USERPROFILE`. `USERPROFILE`
+ist das HOME von Windows (PowerShell und cmd setzen kein `HOME`); die Datei
+liegt dort unter `%USERPROFILE%\.config\immojump\config.json` — derselbe Ort,
+den Git Bash über `HOME` findet. Die Unix-Rechte 0600/0700 wirken unter Windows
+nicht; dort schützt die Benutzer-ACL des Profilordners. Fehlt alles — in
 Agenten-Containern durchaus üblich —, gibt es **keinen** Pfad: Lesen liefert
 eine leere Konfiguration, Schreiben (`auth login`, `context use|delete`) endet
 mit Exit 3 und dem Hinweis auf `IMMOJUMP_CONFIG`. Der frühere Fallback auf
