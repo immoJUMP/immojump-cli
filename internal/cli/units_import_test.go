@@ -239,25 +239,64 @@ func TestUnitsImportCSVGerman(t *testing.T) {
 	}
 }
 
-func TestUnitsImportCSVRejectsBadNumbers(t *testing.T) {
+// TestUnitsImportCSVNumbersAreStrict: Ein Zahlenformat, das nicht zum
+// Schalter passt, wird abgelehnt statt umgedeutet — „62.5“ mit
+// --decimal-comma war 625, „1.250“ in einer deutschen CSV ohne Schalter 1,25.
+func TestUnitsImportCSVNumbersAreStrict(t *testing.T) {
+	cases := []struct {
+		name, csv string
+		args      []string
+		ok        bool
+		want      string
+	}{
+		{"Dezimalkomma", "extern_id;ist_rent\nA;62,5\n", []string{"--decimal-comma"}, true, `"ist_rent":62.5`},
+		{"Tausenderpunkt mit Komma", "extern_id;ist_rent\nA;1.250,50\n", []string{"--decimal-comma"}, true, `"ist_rent":1250.50`},
+		{"Tausenderpunkt ohne Komma", "extern_id;ist_rent\nA;12.500\n", []string{"--decimal-comma"}, true, `"ist_rent":12500`},
+		{"negativ mit Komma", "extern_id;ist_rent\nA;-3,5\n", []string{"--decimal-comma"}, true, `"ist_rent":-3.5`},
+		{"Punkt mit --decimal-comma", "extern_id;ist_rent\nA;62.5\n", []string{"--decimal-comma"}, false, ""},
+		{"zwei Punkte", "extern_id;ist_rent\nA;1.2.3\n", []string{"--decimal-comma"}, false, ""},
+		{"Leerzeichen in der Zahl", "extern_id;ist_rent\nA;1 250,50\n", []string{"--decimal-comma"}, false, ""},
+		{"Punkt ohne Schalter", "extern_id,ist_rent\nA,62.5\n", nil, true, `"ist_rent":62.5`},
+		{"Komma ohne Schalter", "extern_id;ist_rent\nA;62,5\n", nil, false, ""},
+		{"deutscher Tausender ohne Schalter", "extern_id;ist_rent\nA;1.250\n", nil, false, ""},
+		{"Tausender-Form mit Komma-Trenner bleibt Dezimalpunkt", "extern_id,ist_rent\nA,1.250\n", nil, true, `"ist_rent":1.250`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			b := &bulkBackend{}
+			h.handle = b.handle
+			file := writeTemp(t, "mieter.csv", tc.csv)
+			code, _, stderr := h.run(append([]string{"units", "import", "5", "--file", file}, tc.args...)...)
+			if tc.ok {
+				if code != 0 {
+					t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+				}
+				if !strings.Contains(b.bodies[0], tc.want) {
+					t.Errorf("%s erwartet, got %s", tc.want, b.bodies[0])
+				}
+				return
+			}
+			if code != 11 {
+				t.Fatalf("Exit 11 erwartet, got %d (%s)", code, stderr)
+			}
+			if len(b.bodies) != 0 {
+				t.Error("vor dem ersten Stapel abbrechen")
+			}
+			msg, _ := errorLine(t, stderr)["message"].(string)
+			if !strings.Contains(msg, "Zeile 2") || !strings.Contains(msg, "ist_rent") {
+				t.Errorf("Meldung soll Zeile und Spalte nennen, got %q", msg)
+			}
+		})
+	}
+}
+
+func TestUnitsImportCSVGermanThousandsHintsAtDecimalComma(t *testing.T) {
 	h := newHarness(t)
-	file := writeTemp(t, "mieter.csv", "extern_id,livingspace\nA,62.5\nB,62,5\n")
-	code, _, stderr := h.run("units", "import", "5", "--file", file)
-	if code != 2 {
-		t.Fatalf("Exit 2 erwartet, got %d (%s)", code, stderr)
-	}
-	if h.last != nil {
-		t.Error("kein Request bei kaputter Eingabe")
-	}
-	h2 := newHarness(t)
-	file2 := writeTemp(t, "mieter.csv", "extern_id,livingspace\nA,62.5\nB,zweiundsechzig\n")
-	code, _, stderr = h2.run("units", "import", "5", "--file", file2)
-	if code != 2 {
-		t.Fatalf("Exit 2 erwartet, got %d (%s)", code, stderr)
-	}
-	msg, _ := errorLine(t, stderr)["message"].(string)
-	if !strings.Contains(msg, "Zeile 3") || !strings.Contains(msg, "livingspace") || !strings.Contains(msg, "--decimal-comma") {
-		t.Errorf("Meldung soll Zeile, Spalte und --decimal-comma nennen, got %q", msg)
+	file := writeTemp(t, "mieter.csv", "extern_id;ist_rent\nA;1.250\n")
+	_, _, stderr := h.run("units", "import", "5", "--file", file)
+	if msg, _ := errorLine(t, stderr)["message"].(string); !strings.Contains(msg, "--decimal-comma") {
+		t.Errorf("Hinweis auf --decimal-comma erwartet, got %q", msg)
 	}
 }
 
