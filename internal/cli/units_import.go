@@ -134,9 +134,7 @@ func parseCSVNumber(value string, decimalComma bool, comma rune) (json.Number, s
 		if !commaNumber.MatchString(value) && !groupedComma.MatchString(value) {
 			return "", "ist keine Zahl im deutschen Format (erwartet z. B. 62,5 oder 1.250,50)"
 		}
-		normalized := strings.ReplaceAll(strings.ReplaceAll(value, ".", ""), ",", ".")
-		number, _ := parseNumber(normalized)
-		return number, ""
+		return toJSONNumber(strings.ReplaceAll(strings.ReplaceAll(value, ".", ""), ",", "."))
 	}
 	if comma == ';' && germanThousands.MatchString(value) {
 		return "", "ist mehrdeutig (Tausenderpunkt oder Dezimalpunkt?) — deutsche Zahlen mit --decimal-comma lesen"
@@ -144,7 +142,30 @@ func parseCSVNumber(value string, decimalComma bool, comma rune) (json.Number, s
 	if !plainNumber.MatchString(value) {
 		return "", "ist keine Zahl (Dezimalpunkt erwartet; deutsches Format mit --decimal-comma)"
 	}
-	number, _ := parseNumber(value)
+	return toJSONNumber(value)
+}
+
+// toJSONNumber macht aus einer schon geprüften Dezimalzahl eine JSON-Zahl.
+// Führende Nullen („062.5“) sind in JSON ungültig und werden entfernt;
+// scheitert die Umwandlung trotzdem, ist das ein Fehler — nie still 0.
+func toJSONNumber(value string) (json.Number, string) {
+	sign := ""
+	if strings.HasPrefix(value, "-") {
+		sign, value = "-", value[1:]
+	}
+	intPart, frac, hasFrac := strings.Cut(value, ".")
+	intPart = strings.TrimLeft(intPart, "0")
+	if intPart == "" {
+		intPart = "0"
+	}
+	normalized := sign + intPart
+	if hasFrac {
+		normalized += "." + frac
+	}
+	number, ok := parseNumber(normalized)
+	if !ok {
+		return "", "ist keine Zahl"
+	}
 	return number, ""
 }
 

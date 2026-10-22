@@ -257,6 +257,13 @@ func TestUnitsImportCSVNumbersAreStrict(t *testing.T) {
 		{"zwei Punkte", "extern_id;ist_rent\nA;1.2.3\n", []string{"--decimal-comma"}, false, ""},
 		{"Leerzeichen in der Zahl", "extern_id;ist_rent\nA;1 250,50\n", []string{"--decimal-comma"}, false, ""},
 		{"Punkt ohne Schalter", "extern_id,ist_rent\nA,62.5\n", nil, true, `"ist_rent":62.5`},
+		// Führende Nullen: Der JSON-Parser lehnt „062.5“ ab; das ignorierte
+		// Ergebnis ging früher als 0 raus.
+		{"führende Null mit Punkt", "extern_id,ist_rent\nA,062.5\n", nil, true, `"ist_rent":62.5`},
+		{"führende Null mit Komma", "extern_id;ist_rent\nA;062,5\n", []string{"--decimal-comma"}, true, `"ist_rent":62.5`},
+		{"nur Nullen", "extern_id,ist_rent\nA,000\n", nil, true, `"ist_rent":0`},
+		{"negative führende Null", "extern_id,ist_rent\nA,-007\n", nil, true, `"ist_rent":-7`},
+		{"Null vor dem Komma", "extern_id;ist_rent\nA;0,5\n", []string{"--decimal-comma"}, true, `"ist_rent":0.5`},
 		{"Komma ohne Schalter", "extern_id;ist_rent\nA;62,5\n", nil, false, ""},
 		{"deutscher Tausender ohne Schalter", "extern_id;ist_rent\nA;1.250\n", nil, false, ""},
 		{"negativer deutscher Tausender ohne Schalter", "extern_id;ist_rent\nA;-1.250\n", nil, false, ""},

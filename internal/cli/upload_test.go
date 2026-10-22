@@ -924,3 +924,20 @@ func TestUploadDetectsIgnoredUnitID(t *testing.T) {
 		}
 	})
 }
+
+// TestUploadLegacyUnreadableHeaderIsNotSilent: Ein X-Upload-Failed-Files, das
+// sich nicht lesen lässt, ist trotzdem ein Fehlschlag — nicht „alles gut“.
+func TestUploadLegacyUnreadableHeaderIsNotSilent(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.zip": "PK"})
+	h := newHarness(t)
+	h.handle = func(rec *recorded) reply {
+		return reply{body: `[]`, header: http.Header{"X-Upload-Failed-Files": {`kaputt[`}}}
+	}
+	code, _, stderr := h.run("documents", "upload", filepath.Join(root, "a.zip"))
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d (%s)", code, stderr)
+	}
+	if line := errorLine(t, stderr); line["code"] != "UPLOAD_INCOMPLETE" {
+		t.Errorf("UPLOAD_INCOMPLETE erwartet, got %v", line)
+	}
+}
