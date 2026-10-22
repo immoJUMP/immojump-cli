@@ -115,6 +115,19 @@ func TestCommandRequestTable(t *testing.T) {
 		// Ein Datum löscht nur null — das geht über --set.
 		{name: "units update löscht ein Datum", args: []string{"units", "update", "9", "--set", "lease_start_date=null"},
 			method: "PUT", path: "/api/units/unit/9", body: `{"lease_start_date":null}`},
+		// Prognose: Neuvermietung ab Juli 2027 planen, ohne die heutige Ist-Miete
+		// zu überschreiben, und WE 2 zum Ende März 2028 einzeln verkaufen.
+		{name: "units update plant Soll-Miete und Verkauf", args: []string{"units", "update", "9",
+			"--soll-rent", "850", "--soll-rent-from", "01.07.2027", "--planned-sale-date", "2028-03-01"},
+			method: "PUT", path: "/api/units/unit/9",
+			body: `{"soll_rent":850,"soll_rent_from":"01.07.2027","planned_sale_date":"2028-03-01"}`},
+		{name: "units create mit Prognose-Feldern", args: []string{"units", "create", "5",
+			"--einheit", "WE 3", "--ist-rent", "400", "--soll-rent", "550", "--soll-rent-from", "2028-01-01",
+			"--planned-sale-date", "2029-01-01"},
+			method: "POST", path: "/api/units/unit/5",
+			body: `{"einheit":"WE 3","ist_rent":400,"soll_rent":550,"soll_rent_from":"2028-01-01","planned_sale_date":"2029-01-01"}`},
+		{name: "units update löscht den geplanten Verkauf", args: []string{"units", "update", "9", "--set", "planned_sale_date=null"},
+			method: "PUT", path: "/api/units/unit/9", body: `{"planned_sale_date":null}`},
 		{name: "units delete", args: []string{"units", "delete", "9"}, method: "DELETE", path: "/api/units/unit/9"},
 
 		// --- fields (benutzerdefinierte Felder) -----------------------------
