@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/immoJUMP/immojump-cli/compare/v0.9.0...v0.10.0) (2026-10-22)
+
+
+### Features
+
+* **deals:** Deals als kuratierte Ressource, organisation_id aus dem Context ([9435184](https://github.com/immoJUMP/immojump-cli/commit/9435184c674b9e59ce3e6fdabaae003d0e66e5f4))
+
 ## [0.9.0](https://github.com/immoJUMP/immojump-cli/compare/v0.8.0...v0.9.0) (2026-10-22)
 
 
