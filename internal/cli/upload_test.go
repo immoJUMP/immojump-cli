@@ -2,8 +2,6 @@ package cli
 
 import (
 	"archive/zip"
-	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1037,7 +1035,7 @@ func TestUploadSingleEmptyFileIsIncompleteLocally(t *testing.T) {
 	root := dataroom(t, map[string]string{"leer.pdf": ""})
 	writeZip(t, filepath.Join(root, "leer.zip"), map[string]string{"a.pdf": "", "b.pdf": ""})
 	writeZip(t, filepath.Join(root, "voll.zip"), map[string]string{"a.pdf": "", "b.pdf": "%PDF"})
-	for _, name := range []string{"leer.pdf", "leer.zip"} {
+	for _, name := range []string{"leer.pdf"} {
 		h := newHarness(t)
 		code, stdout, stderr := h.run("documents", "upload", filepath.Join(root, name))
 		if code != 1 || h.last != nil || stdout != "" {
@@ -1049,10 +1047,22 @@ func TestUploadSingleEmptyFileIsIncompleteLocally(t *testing.T) {
 			t.Errorf("%s: UPLOAD_INCOMPLETE mit empty erwartet, got %v", name, line)
 		}
 	}
+	// Archive urteilt das Backend: Jede lokale Heuristik ließ sich so täuschen,
+	// dass ein echter Mietvertrag als „leer“ still liegen blieb.
+	for _, name := range []string{"leer.zip", "voll.zip"} {
+		h := newHarness(t)
+		h.respond = `[{"id":1}]`
+		if code, _, stderr := h.run("documents", "upload", filepath.Join(root, name)); code != 0 || h.last == nil {
+			t.Errorf("%s soll gesendet werden, got %d (%s)", name, code, stderr)
+		}
+	}
 	h := newHarness(t)
-	h.respond = `[{"id":1}]`
-	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "voll.zip")); code != 0 || h.last == nil {
-		t.Errorf("ZIP mit Inhalt soll gesendet werden, got %d (%s)", code, stderr)
+	code, _, stderr := h.run("documents", "upload", filepath.Join(root, "voll.zip"), "--max-file-mb", "0.0000001")
+	if code != 1 || h.last != nil {
+		t.Fatalf("zu groß: Exit 1 ohne Request erwartet, got %d (%s)", code, stderr)
+	}
+	if line := errorLine(t, stderr); line["code"] != "FILE_TOO_LARGE" {
+		t.Errorf("FILE_TOO_LARGE erwartet, got %v", line)
 	}
 }
 
@@ -1107,30 +1117,6 @@ func TestUploadUnitIDNotAppliedToDuplicates(t *testing.T) {
 	})
 }
 
-// TestUploadZipPrecheckIsBounded: Der Vorabcheck liest ein ZIP mit mehr
-// Einträgen als die Grenze nicht ein (400k Einträge ≈ 94 MB Verzeichnis) —
-// dann entscheidet das Backend. Eine zu große Datei prüft er gar nicht erst.
-func TestUploadZipPrecheckIsBounded(t *testing.T) {
-	old := zipCheckMaxEntries
-	zipCheckMaxEntries = 3
-	defer func() { zipCheckMaxEntries = old }()
-	root := dataroom(t, map[string]string{})
-	writeZip(t, filepath.Join(root, "viele.zip"), map[string]string{"a": "", "b": "", "c": "", "d": ""})
-	h := newHarness(t)
-	h.respond = `[]`
-	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "viele.zip")); code != 0 || h.last == nil {
-		t.Errorf("über der Eintragsgrenze ungeprüft senden erwartet, got %d (%s)", code, stderr)
-	}
-	h2 := newHarness(t)
-	code, _, stderr := h2.run("documents", "upload", filepath.Join(root, "viele.zip"), "--max-file-mb", "0.0000001")
-	if code != 1 || h2.last != nil {
-		t.Fatalf("zu groß: Exit 1 ohne Request erwartet, got %d (%s)", code, stderr)
-	}
-	if line := errorLine(t, stderr); line["code"] != "FILE_TOO_LARGE" {
-		t.Errorf("Größe vor dem ZIP-Check: FILE_TOO_LARGE erwartet, got %v", line)
-	}
-}
-
 // TestUploadSingleReportBatchFailureKeepsReport: Ein Ordner mit einem
 // einzigen Stapel, der nach dem Senden scheitert (503), endete mit nackter
 // Fehlerzeile — ohne Bericht, ohne may_exist.
@@ -1170,96 +1156,5 @@ func TestUploadUnreadableSuccessBodyMayExist(t *testing.T) {
 	_ = json.Unmarshal([]byte(stdout), &out)
 	if len(out.Failed) != 2 || out.Failed[0]["may_exist"] != true {
 		t.Errorf("may_exist an beiden Dateien erwartet, got %v", out.Failed)
-	}
-}
-
-// TestUploadZipPrecheckIgnoresForgedEntryCount: Die Eintragszahl im
-// End-of-Central-Directory ist nur 16 Bit breit. 65.536 Einträge mit Zahl 0
-// passierten die Grenze, und archive/zip las sie alle ein (Codex) — größere
-// Varianten kosten Gigabytes. Über zipCheckMaxBytes liest der Check nichts.
-func TestUploadZipPrecheckIgnoresForgedEntryCount(t *testing.T) {
-	old := zipCheckMaxBytes
-	zipCheckMaxBytes = 1 << 20
-	defer func() { zipCheckMaxBytes = old }()
-	root := dataroom(t, map[string]string{})
-	var dir bytes.Buffer
-	const entries = 1 << 16
-	for i := 0; i < entries; i++ {
-		name := fmt.Sprintf("%05d", i)
-		header := make([]byte, 46)
-		copy(header, "PK\x01\x02")
-		binary.LittleEndian.PutUint16(header[28:], uint16(len(name)))
-		dir.Write(header)
-		dir.WriteString(name)
-	}
-	eocd := make([]byte, 22)
-	copy(eocd, "PK\x05\x06")
-	binary.LittleEndian.PutUint32(eocd[12:], uint32(dir.Len())) // Größe; Zahl und Offset bleiben 0
-	dir.Write(eocd)
-	if err := os.WriteFile(filepath.Join(root, "gefaelscht.zip"), dir.Bytes(), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	h := newHarness(t)
-	h.respond = `[]`
-	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "gefaelscht.zip")); code != 0 || h.last == nil {
-		t.Errorf("über der Größengrenze ungeprüft senden erwartet, got %d (%s)", code, stderr)
-	}
-}
-
-// TestUploadZipPrecheckKeepsRealArchives: Ein eigener Parser des Verzeichnisses
-// hielt echte ZIPs für leer (vorangestellte Daten, EOCD-Signatur im Kommentar)
-// und stürzte bei Namen über 256 Byte ab (Codex). Diese Fälle laufen über
-// archive/zip und werden gesendet.
-func TestUploadZipPrecheckKeepsRealArchives(t *testing.T) {
-	root := dataroom(t, map[string]string{})
-	langerName := strings.Repeat("a", 300) + ".pdf"
-	writeZip(t, filepath.Join(root, "lang.zip"), map[string]string{langerName: "%PDF-1 Inhalt"})
-	writeZip(t, filepath.Join(root, "basis.zip"), map[string]string{"vertrag.pdf": "%PDF-1 Inhalt"})
-	basis, err := os.ReadFile(filepath.Join(root, "basis.zip"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Selbstentpackend: Daten vor dem Archiv, mit einer Verzeichnis-Signatur darin.
-	sfx := append([]byte("MZ\x00\x00PK\x01\x02"+strings.Repeat("\x00", 120)), basis...)
-	if err := os.WriteFile(filepath.Join(root, "sfx.zip"), sfx, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"lang.zip", "sfx.zip"} {
-		h := newHarness(t)
-		h.respond = `[]`
-		if code, _, stderr := h.run("documents", "upload", filepath.Join(root, name)); code != 0 || h.last == nil {
-			t.Errorf("%s: senden erwartet, got %d (%s)", name, code, stderr)
-		}
-	}
-	leer := strings.Repeat("b", 300) + ".pdf"
-	writeZip(t, filepath.Join(root, "lang-leer.zip"), map[string]string{leer: ""})
-	h := newHarness(t)
-	if code, _, _ := h.run("documents", "upload", filepath.Join(root, "lang-leer.zip")); code != 1 || h.last != nil {
-		t.Errorf("leeres ZIP mit langem Namen: Exit 1 ohne Request erwartet, got %d", code)
-	}
-}
-
-// TestUploadZipPrecheckAmbiguousEndIsSent: Ein Archiv-Kommentar mit einer
-// zweiten, leeren EOCD-Signatur ließ archive/zip ein Verzeichnis ohne Einträge
-// wählen. Das CLI hielt das ZIP für leer und schickte den Mietvertrag nicht
-// (Codex). Mehrdeutig heißt: das Backend urteilt.
-func TestUploadZipPrecheckAmbiguousEndIsSent(t *testing.T) {
-	root := dataroom(t, map[string]string{})
-	f, err := os.Create(filepath.Join(root, "kommentar.zip"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := zip.NewWriter(f)
-	part, _ := w.Create("vertrag.pdf")
-	_, _ = part.Write([]byte("%PDF-1 Inhalt"))
-	if err := w.SetComment("PK\x05\x06" + strings.Repeat("\x00", 18)); err != nil {
-		t.Fatal(err)
-	}
-	_ = w.Close()
-	_ = f.Close()
-	h := newHarness(t)
-	h.respond = `[]`
-	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "kommentar.zip")); code != 0 || h.last == nil {
-		t.Errorf("senden erwartet, got %d (%s)", code, stderr)
 	}
 }

@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"archive/zip"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"mime"
 	"os"
@@ -294,93 +292,13 @@ func (m *fileMatcher) markUsed(path string) {
 	}
 }
 
-// zipCheckMaxEntries begrenzt den ZIP-Vorabcheck: Darüber liest das CLI das
-// zentrale Verzeichnis nicht ein (400k Einträge ≈ 94 MB) — dann urteilt das
-// Backend.
-var zipCheckMaxEntries = 10000
-
-// zipCheckMaxBytes begrenzt den Speicher des Vorabchecks unabhängig von der
-// Eintragszahl im End-of-Central-Directory: Die ist nur 16 Bit breit, und
-// 65.536 Einträge mit der Zahl 0 passierten die Grenze oben. archive/zip liest
-// alle Einträge ein, höchstens Dateigröße/46 Stück. Ein ZIP nur mit leeren
-// Dateien ist klein (10.000 Einträge mit langen Namen ≈ 6 MB); größere
-// beurteilt das Backend.
-var zipCheckMaxBytes int64 = 8 << 20
-
-// emptyUpload: leere Datei, oder ein ZIP ohne eine nicht-leere Datei. Die
-// Datei wird geöffnet wie beim Senden (os.Root, O_NONBLOCK, Fstat/SameFile,
-// Größe zuerst). RAR, zip64, ZIPs über zipCheckMaxBytes oder über
-// zipCheckMaxEntries Einträgen beurteilt das Backend.
-func emptyUpload(file localFile, maxSize int64) (bool, error) {
-	if file.size == 0 {
-		return true, nil
-	}
-	if strings.ToLower(filepath.Ext(file.path)) != ".zip" {
-		return false, nil
-	}
-	f, size, err := api.OpenUploadFile(api.FilePart{Path: file.path, Root: file.root, Name: file.rel, MaxSize: maxSize})
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = f.Close() }()
-	if size == 0 {
-		return true, nil
-	}
-	if size > zipCheckMaxBytes {
-		return false, nil
-	}
-	if entries, ok := zipEntryCount(f, size); !ok || entries > zipCheckMaxEntries {
-		return false, nil
-	}
-	reader, err := zip.NewReader(f, size)
-	if err != nil {
-		return false, nil // kein lesbares ZIP: das Backend soll urteilen
-	}
-	for _, member := range reader.File {
-		if !member.FileInfo().IsDir() && member.UncompressedSize64 > 0 {
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
-// zipEntryCount liest die Zahl der Einträge aus dem End-of-Central-Directory,
-// ohne das Verzeichnis selbst zu lesen. ok=false bei zip64, unlesbar oder
-// mehrdeutig: Steht die Signatur mehr als einmal im Ende der Datei (etwa im
-// Archiv-Kommentar) oder passt die Kommentarlänge nicht bis ans Dateiende,
-// wählt archive/zip womöglich ein falsches, leeres Verzeichnis — dann urteilt
-// das Backend.
-func zipEntryCount(f *os.File, size int64) (int, bool) {
-	const eocdLen, maxComment = 22, 65535
-	start := size - (eocdLen + maxComment)
-	if start < 0 {
-		start = 0
-	}
-	tail := make([]byte, size-start)
-	if _, err := f.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
-		return 0, false
-	}
-	found := -1
-	for i := len(tail) - 4; i >= 0; i-- {
-		if tail[i] == 'P' && tail[i+1] == 'K' && tail[i+2] == 5 && tail[i+3] == 6 {
-			if found >= 0 {
-				return 0, false // mehrdeutig
-			}
-			found = i
-		}
-	}
-	if found < 0 || found+eocdLen > len(tail) {
-		return 0, false
-	}
-	comment := int(tail[found+20]) | int(tail[found+21])<<8
-	if found+eocdLen+comment != len(tail) {
-		return 0, false
-	}
-	total := int(tail[found+10]) | int(tail[found+11])<<8
-	if total == 0xFFFF {
-		return 0, false // zip64
-	}
-	return total, true
+// emptyUpload: eine leere Datei. Archive prüft das CLI bewusst nicht selbst:
+// Jede eigene Heuristik (Eintragszahl, Verzeichnis, Attribute) ließ sich so
+// täuschen, dass ein echter Mietvertrag als „leer“ still nicht gesendet wurde
+// (Codex, 22.10.2026). Leere Archive meldet das Backend (`empty` im Bericht,
+// sonst seine Fehlermeldung).
+func emptyUpload(file localFile) bool {
+	return file.size == 0
 }
 
 // isArchive erkennt Archive, die das Backend entpackt.
@@ -693,16 +611,12 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			return r.fail(&api.Error{Message: tooLarge(file), Code: "FILE_TOO_LARGE", Exit: 1,
 				Details: map[string]any{"file": file.path, "size": file.size}})
 		}
-		isEmpty, err := emptyUpload(file, maxFileBytes)
-		if err != nil {
-			return r.fail(err)
-		}
-		if isEmpty {
+		if emptyUpload(file) {
 			// Das Backend antwortete mit 400 („All files are empty“), also
 			// Exit 11 — dabei ist nichts falsch aufgerufen, die Datei ist
 			// schlicht leer.
 			return r.fail(&api.Error{
-				Message: fmt.Sprintf("%s ist leer (oder ein Archiv nur mit leeren Dateien) — nicht gesendet.", file.path),
+				Message: fmt.Sprintf("%s ist leer — nicht gesendet.", file.path),
 				Code:    "UPLOAD_INCOMPLETE", Exit: 1,
 				Details: map[string]any{"empty": []string{file.path}},
 			})
