@@ -226,6 +226,9 @@ func (r *runner) dispatch(args []string) int {
 	if err := validateArgs(spec, rest); err != nil {
 		return r.fail(err)
 	}
+	if err := rejectEmptyValues(spec, rest, flags); err != nil {
+		return r.fail(err)
+	}
 	if err := checkGlobalFlagSupport(spec, flags); err != nil {
 		return r.fail(err)
 	}
@@ -396,6 +399,62 @@ func validateArgs(spec Spec, args []string) error {
 	if len(args) > len(spec.Args) && !variadic {
 		return usageErr("%q erwartet höchstens %d Argument(e), bekommen: %d. Aufruf: %s",
 			spec.Name(), len(spec.Args), len(args), spec.Usage())
+	}
+	return nil
+}
+
+// idGlobals sind globale Flags, die eine Kennung tragen.
+var idGlobals = map[string]bool{"org": true, "context": true}
+
+// isIDFlag: Ein Befehls-Flag mit einer einzelnen Kennung (--…-id,
+// --organisation). Listen (--tag-ids) dürfen leer sein — `tags set --tag-ids ""`
+// entfernt bewusst alle Tags.
+func isIDFlag(flag Flag) bool {
+	if flag.Kind == FlagList || flag.Kind == FlagBool {
+		return false
+	}
+	return strings.HasSuffix(flag.Name, "-id") || flag.Name == "organisation"
+}
+
+// rejectEmptyValues lehnt leere oder nur aus Leerzeichen bestehende Werte für
+// positionale Argumente und ID-Flags ab — bevor irgendetwas passiert.
+// `--immobilie-id "$ID"` mit leerer Variable lud sonst den ganzen Datenraum
+// ohne Immobilie in die Organisation.
+func rejectEmptyValues(spec Spec, args []string, flags *flagValues) error {
+	for i, value := range args {
+		if strings.TrimSpace(value) != "" {
+			continue
+		}
+		name := ""
+		switch {
+		case i < len(spec.Args):
+			name = spec.Args[i].Name
+		case len(spec.Args) > 0 && spec.Args[len(spec.Args)-1].Variadic:
+			name = spec.Args[len(spec.Args)-1].Name
+		}
+		return usageErr("Argument <%s> ist leer — Variable gesetzt? Aufruf: %s", name, spec.Usage())
+	}
+	check := func(name string) error {
+		for _, value := range flags.all(name) {
+			if strings.TrimSpace(value) == "" {
+				return usageErr("--%s ist leer — Variable gesetzt? Ohne Wert weglassen statt leer übergeben.", name)
+			}
+		}
+		return nil
+	}
+	for _, flag := range spec.Flags {
+		if isIDFlag(flag) {
+			if err := check(flag.Name); err != nil {
+				return err
+			}
+		}
+	}
+	for name := range idGlobals {
+		if flags.has(name) {
+			if err := check(name); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
