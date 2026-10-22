@@ -498,6 +498,11 @@ func localFileErr(path, format string, a ...any) *Error {
 // folgen, der nach der Aufzählung untergeschoben wurde: Lstat muss eine
 // normale Datei zeigen, und das Fstat des geöffneten Deskriptors muss
 // dieselbe Datei sein. Die Länge kommt aus genau diesem Fstat.
+// OpenUploadFile öffnet eine Upload-Datei mit allen Prüfungen des Uploads
+// (os.Root, Lstat, O_NONBLOCK, Fstat/SameFile, MaxSize) — für Vorabprüfungen
+// wie den ZIP-Check im CLI, die dieselbe Datei lesen müssen.
+func OpenUploadFile(file FilePart) (*os.File, int64, error) { return openUploadFile(file) }
+
 func openUploadFile(file FilePart) (*os.File, int64, error) {
 	path := file.Path
 	lstat := os.Lstat

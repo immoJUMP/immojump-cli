@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"os"
@@ -293,27 +294,67 @@ func (m *fileMatcher) markUsed(path string) {
 	}
 }
 
-// emptyUpload: leere Datei, oder ein ZIP ohne eine nicht-leere Datei. RAR
-// lässt sich mit der Standardbibliothek nicht lesen — dort entscheidet das
+// zipCheckMaxEntries begrenzt den ZIP-Vorabcheck: Darüber liest das CLI das
+// zentrale Verzeichnis nicht ein (400k Einträge ≈ 94 MB) — dann urteilt das
 // Backend.
-func emptyUpload(file localFile) bool {
+var zipCheckMaxEntries = 10000
+
+// emptyUpload: leere Datei, oder ein ZIP ohne eine nicht-leere Datei. Die
+// Datei wird geöffnet wie beim Senden (os.Root, O_NONBLOCK, Fstat/SameFile,
+// Größe zuerst). RAR, zip64 oder ZIPs über zipCheckMaxEntries Einträgen
+// beurteilt das Backend.
+func emptyUpload(file localFile, maxSize int64) (bool, error) {
 	if file.size == 0 {
-		return true
+		return true, nil
 	}
 	if strings.ToLower(filepath.Ext(file.path)) != ".zip" {
-		return false
+		return false, nil
 	}
-	reader, err := zip.OpenReader(file.path)
+	f, size, err := api.OpenUploadFile(api.FilePart{Path: file.path, Root: file.root, Name: file.rel, MaxSize: maxSize})
 	if err != nil {
-		return false // kein lesbares ZIP: das Backend soll urteilen
+		return false, err
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { _ = f.Close() }()
+	if size == 0 {
+		return true, nil
+	}
+	if entries, ok := zipEntryCount(f, size); !ok || entries > zipCheckMaxEntries {
+		return false, nil
+	}
+	reader, err := zip.NewReader(f, size)
+	if err != nil {
+		return false, nil // kein lesbares ZIP: das Backend soll urteilen
+	}
 	for _, member := range reader.File {
 		if !member.FileInfo().IsDir() && member.UncompressedSize64 > 0 {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
+}
+
+// zipEntryCount liest die Zahl der Einträge aus dem End-of-Central-Directory,
+// ohne das Verzeichnis selbst zu lesen. ok=false bei zip64 oder unlesbar.
+func zipEntryCount(f *os.File, size int64) (int, bool) {
+	const eocdLen, maxComment = 22, 65535
+	start := size - (eocdLen + maxComment)
+	if start < 0 {
+		start = 0
+	}
+	tail := make([]byte, size-start)
+	if _, err := f.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
+		return 0, false
+	}
+	for i := len(tail) - eocdLen; i >= 0; i-- {
+		if tail[i] == 'P' && tail[i+1] == 'K' && tail[i+2] == 5 && tail[i+3] == 6 {
+			total := int(tail[i+10]) | int(tail[i+11])<<8
+			if total == 0xFFFF {
+				return 0, false // zip64
+			}
+			return total, true
+		}
+	}
+	return 0, false
 }
 
 // isArchive erkennt Archive, die das Backend entpackt.
@@ -622,7 +663,15 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 
 	if legacy {
 		file := files[0]
-		if emptyUpload(file) {
+		if file.size > maxFileBytes {
+			return r.fail(&api.Error{Message: tooLarge(file), Code: "FILE_TOO_LARGE", Exit: 1,
+				Details: map[string]any{"file": file.path, "size": file.size}})
+		}
+		isEmpty, err := emptyUpload(file, maxFileBytes)
+		if err != nil {
+			return r.fail(err)
+		}
+		if isEmpty {
 			// Das Backend antwortete mit 400 („All files are empty“), also
 			// Exit 11 — dabei ist nichts falsch aufgerufen, die Datei ist
 			// schlicht leer.
@@ -631,10 +680,6 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 				Code:    "UPLOAD_INCOMPLETE", Exit: 1,
 				Details: map[string]any{"empty": []string{file.path}},
 			})
-		}
-		if file.size > maxFileBytes {
-			return r.fail(&api.Error{Message: tooLarge(file), Code: "FILE_TOO_LARGE", Exit: 1,
-				Details: map[string]any{"file": file.path, "size": file.size}})
 		}
 		res, err := client.Do(api.Request{
 			Method: "POST", Path: "/api/documents/documents/bulk-upload", Query: query,

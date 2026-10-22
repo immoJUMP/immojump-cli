@@ -52,3 +52,30 @@ func TestUploadDoesNotBlockOnSwappedFIFO(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenUploadFileDoesNotBlockOnFIFO: Die exportierte Prüfung (vom CLI für
+// den ZIP-Vorabcheck genutzt) blockiert an einer untergeschobenen Pipe nicht.
+func TestOpenUploadFileDoesNotBlockOnFIFO(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.zip")
+	_ = os.WriteFile(path, []byte("PK"), 0o600)
+	hookBeforeOpen = func(p string) {
+		_ = os.Remove(p)
+		_ = syscall.Mkfifo(p, 0o600)
+	}
+	defer func() { hookBeforeOpen = nil }()
+	done := make(chan error, 1)
+	go func() {
+		f, _, err := OpenUploadFile(FilePart{Path: path})
+		if f != nil {
+			_ = f.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		localFileError(t, err, path)
+	case <-time.After(5 * time.Second):
+		t.Fatal("OpenUploadFile blockiert an der Named Pipe")
+	}
+}
