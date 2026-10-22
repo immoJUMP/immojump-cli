@@ -100,8 +100,8 @@ func parseNDJSON(raw []byte) ([]record, error) {
 			continue
 		}
 		var object map[string]any
-		if err := decodeJSONExact([]byte(text), &object); err != nil || object == nil {
-			return nil, usageErr("Zeile %d ist kein JSON-Objekt: %s", line, shorten(text, 80))
+		if err := decodeOneJSON([]byte(text), &object); err != nil || object == nil {
+			return nil, usageErr("Zeile %d muss genau ein JSON-Objekt sein: %s", line, shorten(text, 80))
 		}
 		out = append(out, record{data: object, line: line})
 	}
@@ -115,10 +115,10 @@ func parseNDJSON(raw []byte) ([]record, error) {
 // das Array unter wrapperKey trägt (so sieht der Request-Body selbst aus).
 func parseJSONRecords(raw []byte, wrapperKey string) ([]record, error) {
 	var list []json.RawMessage
-	if err := decodeJSONExact(raw, &list); err != nil {
+	if err := decodeOneJSON(raw, &list); err != nil {
 		var wrapper map[string]json.RawMessage
-		if errWrap := decodeJSONExact(raw, &wrapper); errWrap != nil || wrapper[wrapperKey] == nil {
-			return nil, usageErr("JSON-Eingabe muss ein Array von Objekten sein (oder {%q: [...]})", wrapperKey)
+		if errWrap := decodeOneJSON(raw, &wrapper); errWrap != nil || wrapper[wrapperKey] == nil {
+			return nil, usageErr("JSON-Eingabe muss genau ein Array von Objekten sein (oder genau ein {%q: [...]})", wrapperKey)
 		}
 		if err := decodeJSONExact(wrapper[wrapperKey], &list); err != nil {
 			return nil, usageErr("%q muss ein Array von Objekten sein", wrapperKey)
@@ -133,6 +133,21 @@ func parseJSONRecords(raw []byte, wrapperKey string) ([]record, error) {
 		out = append(out, record{data: object})
 	}
 	return out, nil
+}
+
+// decodeOneJSON liest genau einen JSON-Wert (Zahlen exakt) und verlangt
+// danach das Ende. Ein zweites Objekt in derselben Zeile oder ein zweites
+// Array in der Datei fiele sonst still weg.
+func decodeOneJSON(raw []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return errors.New("nach dem JSON-Wert folgen weitere Daten")
+	}
+	return nil
 }
 
 func shorten(text string, max int) string {
