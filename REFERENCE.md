@@ -14,6 +14,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `contacts` | Kontakte |
 | `immobilien` | Immobilien |
 | `units` | Einheiten einer Immobilie |
+| `deals` | Deals: Ankaufs- und Verkaufsvorgänge über eine oder mehrere Immobilien |
 | `activities` | Aktivitäten und Aufgaben |
 | `pipelines` | Pipelines und ihre Phasen |
 | `statuses` | Status (Phasen) einzeln bearbeiten |
@@ -684,6 +685,113 @@ Einheit löschen (die letzte Einheit einer Immobilie lehnt das Backend mit 400 a
 - **Argumente:**
   - `unit-id` — ID der Einheit
 - **Beispiel:** `immojump units delete 9`
+
+### deals
+
+Deals: Ankaufs- und Verkaufsvorgänge über eine oder mehrere Immobilien
+
+| Befehl | Risk | Endpoint |
+| --- | --- | --- |
+| `deals list` | read | `GET /api/deals` |
+| `deals get` | read | `GET /api/deals/{id}` |
+| `deals create` | write | `POST /api/deals` |
+| `deals update` | write | `PATCH /api/deals/{id}` |
+| `deals delete` | destructive | `DELETE /api/deals/{id}` |
+| `deals deleted` | read | `GET /api/deals/deleted` |
+| `deals restore` | write | `POST /api/deals/{id}/restore` |
+
+#### deals list
+
+Deals der Organisation auflisten, neueste zuerst (immer die ganze Liste als Array; page/per_page wertet die Route nicht aus)
+
+- **Aufruf:** `immojump deals list`
+- **Endpoint:** `GET /api/deals`
+- **Risk:** `read`
+- **Bekannte Query-Parameter** (per `-q key=value`):
+  - `status_ids` — Phasen-IDs, wiederholt angeben (?status_ids=7&status_ids=9); ODER-verknüpft, keine Zahl ergibt 400
+  - `status_id` — eine Phasen-ID (Alias zu status_ids, kombinierbar)
+  - `pipeline_id` — nur Deals in Phasen dieser Pipeline
+  - `search` — Teilwort in Name oder Beschreibung, Groß-/Kleinschreibung egal
+- **Beispiel:** `immojump deals list -q status_ids=7 --fields id,name,status_id,deal_amount`
+
+#### deals get
+
+Einen Deal laden
+
+- **Aufruf:** `immojump deals get <id>`
+- **Endpoint:** `GET /api/deals/{id}`
+- **Risk:** `read`
+- **Argumente:**
+  - `id` — ID (UUID) des Deals
+- **Beispiel:** `immojump deals get 0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10`
+
+#### deals create
+
+Deal anlegen (name ist Pflicht; ohne ihn antwortet das Backend mit 400)
+
+- **Aufruf:** `immojump deals create`
+- **Endpoint:** `POST /api/deals`
+- **Risk:** `write`
+- **Flags:**
+  - `--name <wert>` — Name des Deals
+  - `--status-id <wert>` — ID der Phase (Deal-Pipeline: pipelines statuses <pipeline-id>)
+  - `--deal-amount <wert>` — Volumen in Euro, z. B. 1250000 oder 249999.50
+  - `--probability <wert>` — Abschlusswahrscheinlichkeit in Prozent (0–100)
+  - `--immobilie-ids <wert>` — IDs der Immobilien, kommagetrennt oder wiederholt; ersetzt die Zuordnung, leer löst alle
+  - `--contact-ids <wert>` — IDs (UUID) der Kontakte, kommagetrennt oder wiederholt; ersetzt die Zuordnung, leer löst alle
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump deals create --name 'MFH Köln' --status-id 7 --deal-amount 1250000 --immobilie-ids 5`
+
+#### deals update
+
+Einzelne Felder eines Deals ändern (nur gesetzte Felder; Listen ersetzen die bisherige Zuordnung)
+
+- **Aufruf:** `immojump deals update <id>`
+- **Endpoint:** `PATCH /api/deals/{id}`
+- **Risk:** `write`
+- **Argumente:**
+  - `id` — ID (UUID) des Deals
+- **Flags:**
+  - `--name <wert>` — Name des Deals
+  - `--status-id <wert>` — ID der Phase (Deal-Pipeline: pipelines statuses <pipeline-id>)
+  - `--deal-amount <wert>` — Volumen in Euro, z. B. 1250000 oder 249999.50
+  - `--probability <wert>` — Abschlusswahrscheinlichkeit in Prozent (0–100)
+  - `--immobilie-ids <wert>` — IDs der Immobilien, kommagetrennt oder wiederholt; ersetzt die Zuordnung, leer löst alle
+  - `--contact-ids <wert>` — IDs (UUID) der Kontakte, kommagetrennt oder wiederholt; ersetzt die Zuordnung, leer löst alle
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump deals update 0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10 --probability 80 --set next_step=Notartermin`
+
+#### deals delete
+
+Deal löschen (Papierkorb; deals restore holt ihn zurück)
+
+- **Aufruf:** `immojump deals delete <id>`
+- **Endpoint:** `DELETE /api/deals/{id}`
+- **Risk:** `destructive`
+- **Argumente:**
+  - `id` — ID (UUID) des Deals
+- **Beispiel:** `immojump deals delete 0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10`
+
+#### deals deleted
+
+Papierkorb: gelöschte Deals (nur Admins; Antwort {deals: [{id, name, immobilie_count, deleted_at, deleted_by_id}]})
+
+- **Aufruf:** `immojump deals deleted`
+- **Endpoint:** `GET /api/deals/deleted`
+- **Risk:** `read`
+- **Beispiel:** `immojump deals deleted --fields deals.id,deals.name,deals.deleted_at`
+
+#### deals restore
+
+Gelöschten Deal aus dem Papierkorb zurückholen
+
+- **Aufruf:** `immojump deals restore <id>`
+- **Endpoint:** `POST /api/deals/{id}/restore`
+- **Risk:** `write`
+- **Argumente:**
+  - `id` — ID (UUID) des Deals
+- **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
+- **Beispiel:** `immojump deals restore 0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10`
 
 ### activities
 
@@ -2070,7 +2178,7 @@ Beliebigen /api/-Pfad aufrufen (Escape-Hatch); das Risk-Level entsteht pro Aufru
 - **Argumente:**
   - `method` — HTTP-Methode, z. B. GET oder POST
   - `pfad` — Pfad ab /api/, z. B. /api/deals
-- **Beispiel:** `immojump api GET /api/deals -q status_ids=7`
+- **Beispiel:** `immojump api GET /api/deals -q organisation_id=<org-id> -q status_ids=7`
 
 ### docs
 

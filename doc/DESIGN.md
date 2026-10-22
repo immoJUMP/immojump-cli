@@ -125,6 +125,12 @@ Variable lud sonst den ganzen Datenraum ohne Immobilie in die Organisation.
 Listen-Flags sind ausgenommen: `tags set --tag-ids ""` entfernt bewusst alle
 Tags.
 
+Der Escape-Hatch ergänzt `organisation_id` nirgends. Zeigt sein Beispiel
+auf eine Route, die die Registry mit `OrgQuery`/`OrgBody` führt, muss es den
+Parameter selbst nennen — eine Registry-Invariante prüft das, seit
+`api GET /api/deals -q status_ids=7` gegen das echte Backend mit 400
+„organisation_id is required" endete.
+
 `pipelines import` hängt die aufgelöste Organisation immer als
 `?organisation_id=…` an: Die Import-Route liest sie ausschließlich aus Payload
 oder Query, den Header `X-Organisation-Id` ignoriert sie. Fehlt die
@@ -493,6 +499,11 @@ Spiegel des MCP-Standard-Tiers plus das neue Freigabe-Feature:
   `--search` (Query `q`; `--q` ginge nicht, `-q` ist das globale Query-Flag),
   `--limit`/`--offset`/`--all`
 - `tags` list/create/update/delete/of/set
+- `deals` list/get/create/update/delete/deleted/restore — wie `fields` liest
+  die Route `organisation_id` aus Query (`list`, `deleted`) bzw. Body
+  (`create`), nie aus dem Header; die Spec sagt das über `OrgQuery`/`OrgBody`.
+  `delete` ist `destructive` wie bei Kontakten und Immobilien, obwohl das
+  Backend weich löscht (`deals deleted`, `deals restore`)
 - `fields` list/create — Definitionen benutzerdefinierter Felder
   (`/api/custom-fields/definitions`). Die Route liest `organisation_id` aus
   Query bzw. Body statt aus dem Header; die Spec sagt das deklarativ
@@ -542,7 +553,7 @@ statt `vorname`, `title` statt `titel`, `einheit`/`ist_rent` bei Einheiten,
 Beispiel, das 422 zurückgibt, ist schlimmer als gar keins.
 
 Bewusst NICHT in v1: destruktive Massen-Operationen (`contacts bulk-delete`),
-Merge-Flows, Deals/Tickets/Feed/Loans (Profi-/Full-Tier) — über `api …`
+Merge-Flows, Tickets/Loans (Profi-/Full-Tier) — über `api …`
 erreichbar, kuratiert werden sie bei Bedarf.
 
 ## Teststrategie (TDD)
@@ -581,4 +592,4 @@ statt `v0.1.0`.
 ## Abgrenzung / später
 
 - `docs --skill`: fertiges SKILL.md für Claude-Agenten generieren.
-- Images-Upload, Custom Fields, Deals/Tickets als kuratierte Befehle.
+- Images-Upload, Tickets als kuratierte Befehle.
