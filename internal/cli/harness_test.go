@@ -55,6 +55,8 @@ type harness struct {
 	requests []*recorded
 	sleeps   []time.Duration
 	mu       sync.Mutex
+	// version überschreibt die eingebaute Version (leer: Build-Version).
+	version string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -117,11 +119,12 @@ func (h *harness) run(args ...string) (int, string, string) {
 	h.t.Helper()
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	code := Run(args, Options{
-		Stdin:  strings.NewReader(h.stdin),
-		Stdout: stdout,
-		Stderr: stderr,
-		Getenv: func(key string) string { return h.env[key] },
-		Sleep:  func(d time.Duration) { h.sleeps = append(h.sleeps, d) },
+		Stdin:   strings.NewReader(h.stdin),
+		Stdout:  stdout,
+		Stderr:  stderr,
+		Getenv:  func(key string) string { return h.env[key] },
+		Sleep:   func(d time.Duration) { h.sleeps = append(h.sleeps, d) },
+		Version: h.version,
 	})
 	return code, stdout.String(), stderr.String()
 }

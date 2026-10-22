@@ -39,6 +39,7 @@ var unsupportedGlobals = map[string][]string{
 	SpecialContextCurrent:      {"q", "set", "body"},
 	SpecialContextUse:          {"q", "set", "body"},
 	SpecialContextDelete:       {"q", "set", "body"},
+	SpecialUpdate:              {"q", "set", "body"},
 }
 
 // rejectsBodyFlags sagt, ob ein Befehl seinen Body komplett selbst baut.

@@ -16,5 +16,8 @@ func main() {
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 		Getenv: os.Getenv,
+		// Nur wer stderr im Terminal sieht, bekommt den täglichen Hinweis
+		// auf eine neue Version.
+		Interactive: cli.IsTerminal(os.Stderr),
 	}))
 }

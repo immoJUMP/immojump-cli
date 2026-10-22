@@ -55,6 +55,19 @@ type Options struct {
 	// Sleep wartet zwischen zwei Versuchen (Default time.Sleep). Tests
 	// injizieren hier eine Aufzeichnung statt echter Pausen.
 	Sleep func(time.Duration)
+	// Version überschreibt die eingebaute Version (Tests).
+	Version string
+	// ReleaseURL ist das GitHub-Repo, aus dem `update` lädt (Default
+	// DefaultReleaseURL).
+	ReleaseURL string
+	// Executable liefert den Pfad des laufenden Binarys (Default
+	// os.Executable mit aufgelösten Symlinks).
+	Executable func() (string, error)
+	// Interactive: stderr ist ein Terminal, ein Mensch liest mit. Nur dann
+	// gibt es den täglichen Hinweis auf eine neue Version.
+	Interactive bool
+	// Now liefert die aktuelle Zeit (Default time.Now).
+	Now func() time.Time
 }
 
 type runner struct {
@@ -64,6 +77,16 @@ type runner struct {
 	getenv func(string) string
 	http   *http.Client
 	sleep  func(time.Duration)
+
+	version     string
+	releaseURL  string
+	executable  func() (string, error)
+	interactive bool
+	now         func() time.Time
+
+	// minVersionWarned: Der Hinweis auf die Mindestversion kommt höchstens
+	// einmal je Aufruf, auch bei Wiederholungen, Blättern und Stapeln.
+	minVersionWarned bool
 }
 
 // Run führt einen CLI-Aufruf aus und liefert den Exit-Code.
@@ -75,6 +98,12 @@ func Run(args []string, opts Options) int {
 		getenv: opts.Getenv,
 		http:   opts.HTTP,
 		sleep:  opts.Sleep,
+
+		version:     opts.Version,
+		releaseURL:  opts.ReleaseURL,
+		executable:  opts.Executable,
+		interactive: opts.Interactive,
+		now:         opts.Now,
 	}
 	if r.stdin == nil {
 		r.stdin = strings.NewReader("")
@@ -91,7 +120,23 @@ func Run(args []string, opts Options) int {
 	if r.sleep == nil {
 		r.sleep = time.Sleep
 	}
-	return r.dispatch(args)
+	if r.version == "" {
+		info, ok := debug.ReadBuildInfo()
+		r.version = resolveVersion(Version, info, ok)
+	}
+	if r.releaseURL == "" {
+		r.releaseURL = DefaultReleaseURL
+	}
+	if r.executable == nil {
+		r.executable = currentExecutable
+	}
+	if r.now == nil {
+		r.now = time.Now
+	}
+	finishHint := r.startUpdateHint(args)
+	code := r.dispatch(args)
+	finishHint()
+	return code
 }
 
 // usageErr ist ein Bedienfehler (Exit 2).
@@ -236,6 +281,9 @@ func (r *runner) dispatch(args []string) int {
 	risk := spec.Risk
 	if spec.Special == SpecialAPI {
 		risk = riskForAPI(rest[0], matchablePath(rest[1]))
+	}
+	if spec.Special == SpecialUpdate && flags.bool("check") {
+		risk = RiskRead
 	}
 	allowed, err := resolveAllowedRisks(flags, r.getenv)
 	if err != nil {
@@ -583,8 +631,7 @@ func (r *runner) checkOutputEnv() error {
 // printVersion ist die eine Stelle, an der die Version rausgeht — `version`
 // und `--version` sollen sich nie auseinanderentwickeln.
 func (r *runner) printVersion() int {
-	info, ok := debug.ReadBuildInfo()
-	fmt.Fprintln(r.stdout, resolveVersion(Version, info, ok))
+	fmt.Fprintln(r.stdout, r.version)
 	return 0
 }
 
@@ -670,10 +717,12 @@ func (r *runner) newClientWithTimeout(resolved config.Resolved, flags *flagValue
 		Token:   resolved.Token,
 		HTTP:    httpClient,
 		// Auch ein injizierter Client muss den Timeout einhalten.
-		Timeout: timeout,
-		Env:     r.getenv,
-		Retries: retries,
-		Sleep:   r.sleep,
+		Timeout:    timeout,
+		UserAgent:  api.UserAgent + "/" + r.version,
+		OnResponse: r.checkMinVersion,
+		Env:        r.getenv,
+		Retries:    retries,
+		Sleep:      r.sleep,
 		OnRetry: func(attempt, attempts int, wait time.Duration, err *api.Error) {
 			details := map[string]any{
 				"attempt":      attempt,
@@ -760,6 +809,8 @@ func (r *runner) runLocal(spec Spec, args []string, flags *flagValues) int {
 	switch spec.Special {
 	case SpecialVersion:
 		return r.printVersion()
+	case SpecialUpdate:
+		return r.runUpdate(flags)
 	case SpecialDocs:
 		return r.runDocs(args)
 	case SpecialSchema:

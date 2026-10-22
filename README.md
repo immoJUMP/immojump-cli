@@ -101,6 +101,29 @@ steht in `SHA256SUMS.txt` am Release; vergleichen mit
 Die Konfiguration liegt unter `%USERPROFILE%\.config\immojump\config.json` —
 PowerShell, cmd und Git Bash teilen sich dieselbe Datei.
 
+### Aktualisieren
+
+```bash
+immojump update          # neueste Version laden, Prüfsumme prüfen, Binary ersetzen
+immojump update --check  # nur nachsehen
+```
+
+`update` fragt nicht nach und ersetzt das laufende Binary atomar; ohne
+passende Prüfsumme im Release wird nichts installiert. Liegt das Binary in
+`/usr/local/bin`, braucht es `sudo immojump update`. Unter `--readonly` ist
+`update` gesperrt, `--check` nicht.
+
+Woran man merkt, dass es Zeit ist:
+
+- **Am Terminal** steht höchstens einmal am Tag ein Hinweis auf stderr, wenn
+  es eine neuere Version gibt. Agenten, Skripte und CI (stderr kein Terminal
+  oder `CI` gesetzt) sehen ihn nicht; abschalten mit
+  `IMMOJUMP_NO_UPDATE_CHECK=1`.
+- **Überall**, auch im Agenten: Meldet der Server eine Mindestversion über der
+  installierten, trägt jeder Aufruf eine Warnzeile mit `installed`, `minimum`
+  und `update_command`. Dann ist das Update fällig, weil sich der API-Vertrag
+  geändert hat.
+
 ### Aus dem Quellcode
 
 ```bash
