@@ -562,7 +562,7 @@ var Registry = []Spec{
 		Args: idArg("ID der Immobilie"),
 		Flags: []Flag{
 			{Name: "exclude", Kind: FlagString,
-				Desc: "schwere Teile weglassen, kommagetrennt: units, dokumente (gemessen: 300 Einheiten ≈ 100 KB Antwort)"},
+				Desc: "Teile weglassen, kommagetrennt: units, dokumente, owners, loans, tags (gemessen: 300 Einheiten ≈ 100 KB Antwort); ein anderer Wert ergibt 400 mit valid_values"},
 		},
 		Query:   []FlagQuery{{Flag: "exclude", Key: "exclude"}},
 		Example: "immojump immobilien get 5 --exclude units,dokumente",

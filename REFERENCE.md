@@ -434,7 +434,7 @@ Eine Immobilie laden
 - **Argumente:**
   - `id` — ID der Immobilie
 - **Flags:**
-  - `--exclude <wert>` — schwere Teile weglassen, kommagetrennt: units, dokumente (gemessen: 300 Einheiten ≈ 100 KB Antwort)
+  - `--exclude <wert>` — Teile weglassen, kommagetrennt: units, dokumente, owners, loans, tags (gemessen: 300 Einheiten ≈ 100 KB Antwort); ein anderer Wert ergibt 400 mit valid_values
 - **Beispiel:** `immojump immobilien get 5 --exclude units,dokumente`
 
 #### immobilien create
