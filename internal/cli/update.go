@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -53,7 +54,7 @@ func releaseAsset(goos, goarch string) string {
 // nie mit — dieser Client kennt ihn nicht. Ohne followRedirects ist die
 // Weiterleitung selbst die Antwort (/releases/latest → Tag); Downloads leitet
 // GitHub auf einen Speicher-Host weiter, dem gefolgt werden muss.
-func releaseClient(base *http.Client, timeout time.Duration, followRedirects bool) *http.Client {
+func releaseClient(base *http.Client, timeout time.Duration, followRedirects bool, origin string) *http.Client {
 	client := &http.Client{Timeout: timeout}
 	if base != nil {
 		copied := *base
@@ -63,13 +64,50 @@ func releaseClient(base *http.Client, timeout time.Duration, followRedirects boo
 		}
 	}
 	if followRedirects {
-		client.CheckRedirect = nil
+		client.CheckRedirect = releaseRedirectPolicy(origin)
 	} else {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
 	}
 	return client
+}
+
+// trustedReleaseHosts sind die Speicher-Hosts, auf die GitHub Release-
+// Downloads weiterleitet. Nur dorthin (und zur Release-Quelle selbst) folgt
+// update einer Weiterleitung — sonst könnte ein Redirect Binary und
+// SHA256SUMS.txt gemeinsam aus einer fremden Quelle liefern, und die
+// Prüfsumme passte trotzdem.
+var trustedReleaseHosts = map[string]bool{
+	"github.com":                            true,
+	"release-assets.githubusercontent.com":  true,
+	"objects.githubusercontent.com":         true,
+	"github-releases.githubusercontent.com": true,
+}
+
+// errUntrustedRedirect: Eine Weiterleitung zeigte aus der offiziellen
+// Release-Quelle heraus.
+var errUntrustedRedirect = errors.New("Weiterleitung außerhalb der offiziellen Release-Quelle")
+
+// releaseRedirectPolicy erlaubt Weiterleitungen nur innerhalb der
+// Release-Quelle (origin, Schema und Host gleich) oder per HTTPS auf einen
+// GitHub-Speicher-Host. HTTPS→HTTP und fremde Hosts brechen ab.
+func releaseRedirectPolicy(origin string) func(*http.Request, []*http.Request) error {
+	base, _ := url.Parse(origin)
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("zu viele Weiterleitungen")
+		}
+		target := req.URL
+		if base != nil && target.Scheme == base.Scheme && strings.EqualFold(target.Host, base.Host) {
+			return nil
+		}
+		if target.Scheme == "https" && (target.Port() == "" || target.Port() == "443") &&
+			trustedReleaseHosts[strings.ToLower(target.Hostname())] {
+			return nil
+		}
+		return fmt.Errorf("%w: %s://%s", errUntrustedRedirect, target.Scheme, target.Host)
+	}
 }
 
 // releaseErr übersetzt einen HTTP-Fehler beim Release-Abruf. 5xx und
@@ -123,6 +161,13 @@ func latestRelease(client *http.Client, base string) (string, error) {
 func fetchRelease(client *http.Client, base, tag, name string) ([]byte, int, error) {
 	target := strings.TrimRight(base, "/") + "/releases/download/" + tag + "/" + name
 	res, err := client.Get(target)
+	if errors.Is(err, errUntrustedRedirect) {
+		return nil, 0, &api.Error{
+			Message: fmt.Sprintf("%s: %v — nichts installiert", target, err),
+			Code:    "RELEASE_UNTRUSTED",
+			Exit:    1,
+		}
+	}
 	if err != nil {
 		return nil, 0, releaseNetworkErr(target, err)
 	}
@@ -254,7 +299,7 @@ func (r *runner) runUpdate(flags *flagValues) int {
 	if err != nil {
 		return r.fail(err)
 	}
-	latest, err := latestRelease(releaseClient(r.http, timeout, false), r.releaseURL)
+	latest, err := latestRelease(releaseClient(r.http, timeout, false, r.releaseURL), r.releaseURL)
 	if err != nil {
 		return r.fail(err)
 	}
@@ -278,7 +323,7 @@ func (r *runner) runUpdate(flags *flagValues) int {
 		return r.fail(&api.Error{Message: "Pfad des laufenden Binarys nicht ermittelbar: " + err.Error(),
 			Code: "UPDATE_WRITE_FAILED", Exit: 1})
 	}
-	binary, err := downloadVerified(releaseClient(r.http, timeout, true), r.releaseURL, latest, releaseAsset(runtime.GOOS, runtime.GOARCH))
+	binary, err := downloadVerified(releaseClient(r.http, timeout, true, r.releaseURL), r.releaseURL, latest, releaseAsset(runtime.GOOS, runtime.GOARCH))
 	if err != nil {
 		return r.fail(err)
 	}

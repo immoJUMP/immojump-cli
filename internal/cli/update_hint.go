@@ -18,9 +18,14 @@ const EnvNoUpdateCheck = "IMMOJUMP_NO_UPDATE_CHECK"
 // updateHintInterval: höchstens ein Abruf (und ein Hinweis) pro Zeitraum.
 const updateHintInterval = 24 * time.Hour
 
-// updateHintTimeout begrenzt, wie lange ein Aufruf auf den Abruf wartet. Er
-// läuft parallel zum eigentlichen Befehl; meist ist er dann längst fertig.
+// updateHintTimeout begrenzt den Abruf selbst. Er läuft parallel zum
+// eigentlichen Befehl; meist ist er dann längst fertig.
 const updateHintTimeout = 2 * time.Second
+
+// updateHintGrace: So lange wartet ein Aufruf nach seinem Befehl höchstens
+// noch auf den Abruf. Ist er bis dahin nicht fertig, endet der Aufruf ohne
+// Hinweis — auch `immojump version` hängt offline nie die vollen 2 s.
+var updateHintGrace = 300 * time.Millisecond
 
 // updateCheckState liegt neben der config.json.
 type updateCheckState struct {
@@ -73,22 +78,31 @@ func (r *runner) startUpdateHint(args []string) func() {
 		}
 	}
 
+	// Den Tag vor dem Abruf belegen: Ein Abruf, der nicht rechtzeitig fertig
+	// wird oder scheitert, wird erst morgen wiederholt. Lässt sich der Stand
+	// nicht speichern, unterbleibt der Abruf ganz — sonst kostete jeder
+	// Aufruf erneut Wartezeit.
+	if !writeUpdateState(statePath, updateCheckState{CheckedAt: now}) {
+		return func() {}
+	}
+
 	done := make(chan string, 1)
 	go func() {
-		latest, err := latestRelease(releaseClient(r.http, updateHintTimeout, false), r.releaseURL)
+		latest, err := latestRelease(releaseClient(r.http, updateHintTimeout, false, r.releaseURL), r.releaseURL)
 		if err != nil {
 			latest = ""
 		}
 		done <- latest
 	}()
 	return func() {
-		latest := <-done
-		state := updateCheckState{CheckedAt: now, Latest: latest}
-		if raw, err := json.Marshal(state); err == nil {
-			// Ohne Schreibrecht im Config-Ordner gibt es eben jeden Tag
-			// mehrere Abrufe — kein Grund, den Aufruf zu stören.
-			_ = os.MkdirAll(filepath.Dir(statePath), 0o700)
-			_ = os.WriteFile(statePath, raw, 0o600)
+		var latest string
+		select {
+		case latest = <-done:
+		case <-time.After(updateHintGrace):
+			return
+		}
+		if latest != "" {
+			_ = writeUpdateState(statePath, updateCheckState{CheckedAt: now, Latest: latest})
 		}
 		if older, ok := versionOlder(r.version, latest); ok && older {
 			_ = output.WriteWarning(r.stderr, fmt.Sprintf(
@@ -100,6 +114,19 @@ func (r *runner) startUpdateHint(args []string) func() {
 			})
 		}
 	}
+}
+
+// writeUpdateState speichert den Stand des täglichen Abrufs; false, wenn das
+// nicht geht (etwa ohne Schreibrecht im Config-Ordner).
+func writeUpdateState(statePath string, state updateCheckState) bool {
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return false
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		return false
+	}
+	return os.WriteFile(statePath, raw, 0o600) == nil
 }
 
 // IsTerminal meldet, ob f ein Terminal ist — ohne Abhängigkeit über die

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -184,5 +186,49 @@ func TestUpdateHintNotDuringUpdate(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Errorf("kein Hinweis während update, stderr %q", stderr)
+	}
+}
+
+// TestUpdateHintDoesNotWaitForSlowLookup: Ein langsames Netz verzögert den
+// Aufruf höchstens um die kurze Nachfrist, nicht um den vollen Timeout — und
+// der Abruf wird erst morgen wiederholt.
+func TestUpdateHintDoesNotWaitForSlowLookup(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	release.latestDelay = 1500 * time.Millisecond
+	u := newUpdateRun(t, "v0.4.0", release)
+	u.interactive = true
+
+	start := time.Now()
+	code, stdout, stderr := u.run("version")
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("Aufruf wartete %v auf den Abruf", elapsed)
+	}
+	if code != 0 || stdout != "v0.4.0\n" || stderr != "" {
+		t.Errorf("Aufruf muss unberührt bleiben: exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	u.now = u.now.Add(time.Hour)
+	u.run("version")
+	if release.latestLookups() > 1 {
+		t.Errorf("nach einem zu langsamen Abruf kein erneuter Abruf am selben Tag, got %d", release.latestLookups())
+	}
+}
+
+// TestUpdateHintSkippedWithoutState: Lässt sich der Stand nicht speichern,
+// unterbleibt der Abruf — sonst kostete jeder Aufruf erneut Zeit.
+func TestUpdateHintSkippedWithoutState(t *testing.T) {
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	u := newUpdateRun(t, "v0.4.0", release)
+	u.interactive = true
+	blocker := filepath.Join(t.TempDir(), "keinordner")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	u.env["IMMOJUMP_CONFIG"] = filepath.Join(blocker, "config.json")
+
+	if _, _, stderr := u.run("version"); stderr != "" {
+		t.Errorf("stderr soll leer sein, got %q", stderr)
+	}
+	if release.latestLookups() != 0 {
+		t.Errorf("ohne speicherbaren Stand kein Abruf erwartet, got %d", release.latestLookups())
 	}
 }
