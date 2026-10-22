@@ -91,6 +91,35 @@ else
 fi
 rm -rf "$ordner"
 
+# --- 4. Windows (Git Bash) --------------------------------------------------
+# Unter Git Bash meldet uname z. B. MINGW64_NT-10.0. install.sh installiert
+# dort bewusst nicht (das Ziel laege nicht auf dem PATH von PowerShell), muss
+# aber auf das Windows-Binary verweisen statt "nur Linux und macOS" zu sagen.
+echo "install.sh verweist unter Git Bash auf das Windows-Binary"
+ordner="$(mktemp -d)"
+mkdir -p "${ordner}/shim"
+cat >"${ordner}/shim/uname" <<'SHIM'
+#!/bin/sh
+case "${1:-}" in
+-m) echo x86_64 ;;
+*) echo MINGW64_NT-10.0-19045 ;;
+esac
+SHIM
+chmod +x "${ordner}/shim/uname"
+if PATH="${ordner}/shim:${PATH}" IMMOJUMP_INSTALL_DIR="$ordner" sh "$skript" >"${ordner}/log" 2>&1; then
+	durchgefallen "Exit 0 unter Git Bash"
+else
+	bestanden "Exit ungleich 0"
+fi
+
+if grep -q "immojump-windows-amd64.exe" "${ordner}/log"; then
+	bestanden "nennt das Windows-Binary"
+else
+	durchgefallen "kein Verweis auf das Windows-Binary — Log:"
+	cat "${ordner}/log" >&2
+fi
+rm -rf "$ordner"
+
 # --- Ergebnis ---------------------------------------------------------------
 if [ "$fehlgeschlagen" -ne 0 ]; then
 	echo "install.sh: Tests fehlgeschlagen" >&2

@@ -28,12 +28,14 @@ ci: lint test docs-check
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/immojump
 
-# Cross-Builds für Agent-Runtimes (Linux-Container) und macOS.
+# Cross-Builds für Agent-Runtimes (Linux-Container), macOS und Windows.
 release-build:
 	GOOS=linux  GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/immojump-linux-amd64 ./cmd/immojump
 	GOOS=linux  GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/immojump-linux-arm64 ./cmd/immojump
 	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/immojump-darwin-arm64 ./cmd/immojump
 	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/immojump-darwin-amd64 ./cmd/immojump
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/immojump-windows-amd64.exe ./cmd/immojump
+	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/immojump-windows-arm64.exe ./cmd/immojump
 
 clean:
 	rm -rf bin dist coverage.out
