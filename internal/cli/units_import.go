@@ -258,6 +258,49 @@ func duplicateKeys(records []record) []any {
 	return errs
 }
 
+// duplicateTargets löst jeden Eintrag auf die Einheit auf, die das Backend
+// treffen wird — id zuerst, sonst extern_id gegen die vorhandenen Einheiten
+// (wie der Abgleich der Bulk-Route) — und meldet Ziele, die mehrfach
+// vorkommen. Neue Einheiten (extern_id ohne Treffer) prüft schon
+// duplicateKeys.
+func duplicateTargets(records []record, units []map[string]any) []any {
+	byExtern := map[string]string{}
+	for _, unit := range units {
+		if extern := stringID(unit["extern_id"]); extern != "" {
+			byExtern[extern] = stringID(unit["id"])
+		}
+	}
+	first := map[string]int{}
+	var errs []any
+	for i, rec := range records {
+		target := stringID(rec.data["id"])
+		if target == "" {
+			target = byExtern[stringID(rec.data["extern_id"])]
+		}
+		if target == "" {
+			continue
+		}
+		j, seen := first[target]
+		if !seen {
+			first[target] = i
+			continue
+		}
+		entry := map[string]any{
+			"index":     i,
+			"target_id": target,
+			"message":   fmt.Sprintf("Dieselbe Einheit (%s) setzt schon %s.", target, records[j].position(j)),
+		}
+		if extern := stringID(rec.data["extern_id"]); extern != "" {
+			entry["extern_id"] = extern
+		}
+		if rec.line > 0 {
+			entry["line"] = rec.line
+		}
+		errs = append(errs, entry)
+	}
+	return errs
+}
+
 func hasKey(rec record) bool {
 	return stringID(rec.data["id"]) != "" || stringID(rec.data["extern_id"]) != ""
 }
@@ -303,6 +346,21 @@ func (r *runner) runUnitsImport(immobilieID string, flags *flagValues, resolved 
 	client, err := r.newClient(resolved, flags)
 	if err != nil {
 		return r.fail(err)
+	}
+	// id und extern_id können dieselbe vorhandene Einheit meinen — lokal
+	// sehen sie verschieden aus. Aufgelöst wird gegen die Einheiten des
+	// Hauses (ein lesender Aufruf), bevor irgendetwas geschrieben wird.
+	units, err := listHouseUnits(client, immobilieID)
+	if err != nil {
+		return r.fail(err)
+	}
+	if dups := duplicateTargets(records, units); len(dups) > 0 {
+		return r.fail(&api.Error{
+			Message: fmt.Sprintf("%d Einträge zielen über id und extern_id auf eine Einheit, die schon ein anderer Eintrag setzt — es wurde nichts gesendet.", len(dups)),
+			Code:    "DUPLICATE_KEY",
+			Exit:    11,
+			Details: map[string]any{"errors": dups},
+		})
 	}
 	dryRun := flags.bool("dry-run")
 	path := "/api/units/immobilie/" + url.PathEscape(immobilieID) + "/units/bulk"

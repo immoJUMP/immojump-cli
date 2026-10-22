@@ -12,9 +12,18 @@ import (
 type bulkBackend struct {
 	bodies []string
 	fail   func(n int) *reply
+	// existing sind die Einheiten, die das Haus schon hat: id → extern_id.
+	existing map[string]string
 }
 
 func (b *bulkBackend) handle(rec *recorded) reply {
+	if rec.Method == "GET" && rec.Path == "/api/units/immobilie/5/units" {
+		items := []string{}
+		for id, extern := range b.existing {
+			items = append(items, fmt.Sprintf(`{"id":%q,"extern_id":%q}`, id, extern))
+		}
+		return reply{body: fmt.Sprintf(`{"items":[%s],"total":%d,"limit":500,"offset":0}`, strings.Join(items, ","), len(items))}
+	}
 	if rec.Method != "POST" || rec.Path != "/api/units/immobilie/5/units/bulk" {
 		return reply{status: 404, body: `{"message":"falsche Route"}`}
 	}
@@ -556,5 +565,32 @@ func TestUnitsImportFailureSummaryKeepsComplete(t *testing.T) {
 	}
 	if !sameJSON(t, stdout, `{"created":2,"complete":false,"ambiguous_retry":true}`) {
 		t.Errorf("created plus complete und ambiguous_retry erwartet, got %s", stdout)
+	}
+}
+
+// TestUnitsImportRejectsIDAndExternIDOfTheSameUnit: {"id":"U"} und
+// {"extern_id":"RH-1"}, wobei RH-1 die extern_id von U ist, zielen auf
+// dieselbe Einheit — lokal sahen sie verschieden aus, und der spätere Stapel
+// überschrieb still. Aufgelöst wird gegen die Einheiten des Hauses.
+func TestUnitsImportRejectsIDAndExternIDOfTheSameUnit(t *testing.T) {
+	h := newHarness(t)
+	b := &bulkBackend{existing: map[string]string{"U": "RH-1", "V": "RH-2"}}
+	h.handle = b.handle
+	file := writeTemp(t, "m.ndjson", `{"id":"U","ist_rent":500}`+"\n"+`{"extern_id":"RH-2","ist_rent":1}`+"\n"+`{"extern_id":"RH-1","ist_rent":700}`+"\n")
+	code, _, stderr := h.run("units", "import", "5", "--file", file, "--batch-size", "1")
+	if code != 11 {
+		t.Fatalf("Exit 11 erwartet, got %d (%s)", code, stderr)
+	}
+	if len(b.bodies) != 0 {
+		t.Error("vor dem ersten Stapel abbrechen")
+	}
+	line := errorLine(t, stderr)
+	errs, _ := line["errors"].([]any)
+	if line["code"] != "DUPLICATE_KEY" || len(errs) != 1 {
+		t.Fatalf("ein DUPLICATE_KEY-Fehler erwartet, got %v", line)
+	}
+	entry := errs[0].(map[string]any)
+	if entry["index"] != float64(2) || entry["target_id"] != "U" || entry["line"] != float64(3) {
+		t.Errorf("Eintrag 2 (Zeile 3) auf Einheit U erwartet, got %v", entry)
 	}
 }
