@@ -497,7 +497,8 @@ Was dabei zu wissen ist:
   bei einem ZIP zeigen alle Mitglieder auf das Archiv. Symlinks werden nie
   hochgeladen, und nichts außerhalb des genannten Ordners.
   Exit 0 nur ohne `failed` und `empty`; sonst Exit 1, der Bericht steht trotzdem auf stdout.
-  Uploads werden nie automatisch wiederholt — erneut ausführen ist sicher,
+  Dateien über 250 MB (`--max-file-mb`) gehen nicht raus und stehen unter
+  `failed`. Uploads werden nie automatisch wiederholt — erneut ausführen ist sicher,
   Schon-Hochgeladenes landet unter `duplicates`.
 - **`documents analyze-all`** gibt `{listed, queued, skipped, failed}` aus.
   Bleibt das Rate Limit, endet es mit Exit 7, die übrigen Dokumente stehen mit

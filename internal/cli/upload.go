@@ -24,6 +24,9 @@ const uploadTimeout = 300 * time.Second
 const (
 	defaultBatchFiles = 10
 	defaultBatchMB    = 25.0
+	// defaultMaxFileMB: größere Dateien gehen nicht raus — sie stünden
+	// minutenlang in der Leitung und kämen als 413 oder Timeout zurück.
+	defaultMaxFileMB = 250.0
 )
 
 // skippedNames sind Systemdateien, die in keinem Datenraum etwas verloren
@@ -422,6 +425,21 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		}
 		maxMB = n
 	}
+	maxFileMB := defaultMaxFileMB
+	if flags.has("max-file-mb") {
+		raw := strings.TrimSpace(flags.get("max-file-mb"))
+		n, err := strconv.ParseFloat(raw, 64)
+		if err != nil || n <= 0 {
+			return r.fail(usageErr("--max-file-mb erwartet eine positive Zahl, bekommen: %q", raw))
+		}
+		maxFileMB = n
+	}
+	maxFileBytes := int64(maxFileMB * 1024 * 1024)
+	tooLarge := func(file localFile) string {
+		return fmt.Sprintf("%s ist zu groß (%.1f MB, höchstens %g MB; --max-file-mb) — nicht gesendet",
+			file.path, float64(file.size)/(1024*1024), maxFileMB)
+	}
+
 	roots := &uploadRoots{}
 	defer roots.close()
 	files, err := collectFiles(args, flags.bool("recursive"), roots)
@@ -462,6 +480,10 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 
 	if legacy {
 		file := files[0]
+		if file.size > maxFileBytes {
+			return r.fail(&api.Error{Message: tooLarge(file), Code: "FILE_TOO_LARGE", Exit: 1,
+				Details: map[string]any{"file": file.path, "size": file.size}})
+		}
 		res, err := client.Do(api.Request{
 			Method: "POST", Path: "/api/documents/documents/bulk-upload", Query: query,
 			IdempotencyKey: flags.get("idempotency-key"),
@@ -507,7 +529,15 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 	// stopErr ist der Fehler, der den Lauf beendet hat — sein Exit-Code gilt.
 	var stopErr error
 	report := uploadReport{Uploaded: []uploadedDoc{}, Duplicates: []map[string]any{}, Failed: []failedFile{}, Empty: []string{}}
-	batches := batchFiles(files, maxFiles, int64(maxMB*1024*1024))
+	sendable := make([]localFile, 0, len(files))
+	for _, file := range files {
+		if file.size > maxFileBytes {
+			report.Failed = append(report.Failed, failedFile{File: file.path, Message: tooLarge(file)})
+			continue
+		}
+		sendable = append(sendable, file)
+	}
+	batches := batchFiles(sendable, maxFiles, int64(maxMB*1024*1024))
 	failBatch := func(batch []localFile, message string) {
 		for _, file := range batch {
 			report.Failed = append(report.Failed, failedFile{File: file.path, Message: message})
@@ -541,7 +571,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			continue
 		}
 		if err != nil {
-			if len(batches) == 1 {
+			if len(batches) == 1 && len(report.Failed) == 0 {
 				// Ein Stapel verhält sich wie ein einzelner Request: Fehler
 				// des Backends mit seinem Exit-Code, stdout leer.
 				return r.fail(err)

@@ -1050,6 +1050,7 @@ var Registry = []Spec{
 			{Name: "report", Kind: FlagBool, Desc: "auch für eine einzelne Datei den Bericht ausgeben statt des Arrays des Backends"},
 			{Name: "batch-files", Kind: FlagNumber, Desc: "höchstens so viele Dateien je Request (Default 10)"},
 			{Name: "batch-mb", Kind: FlagNumber, Desc: "höchstens so viele MB je Request (Default 25; eine größere Datei geht allein)"},
+			{Name: "max-file-mb", Kind: FlagNumber, Desc: "Dateien über dieser Größe gar nicht senden, sondern unter failed (Default 250)"},
 		},
 		Notes: []string{
 			"Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code. Scheitern Teile (etwa Mitglieder eines ZIP) oder sind leer, steht das als JSON auf stderr und der Aufruf endet mit Exit 1.",
