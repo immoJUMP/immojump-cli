@@ -559,7 +559,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		// Client wiederholt sie deshalb nie.
 		res, err := client.Do(api.Request{
 			Method: "POST", Path: "/api/documents/documents/bulk-upload", Query: query,
-			IdempotencyKey: flags.get("idempotency-key"),
+			IdempotencyKey: derivedKey(flags, "b"+strconv.Itoa(i+1)),
 			Multipart:      &api.Multipart{Files: parts, Fields: fields},
 		})
 		if dropped, rest := dropLocalFile(err, batch); dropped != nil {

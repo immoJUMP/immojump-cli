@@ -30,11 +30,12 @@ type analyzeSummary struct {
 // auf — die übrigen Dokumente stehen unter skipped mit reason rate_limited,
 // ein späterer Lauf setzt fort. 401 und 402 (Kontingent) treffen jedes
 // weitere Dokument genauso und beenden ebenfalls.
-func (r *runner) queueAnalyses(client *api.Client, ids []string, body []byte, summary *analyzeSummary) error {
+func (r *runner) queueAnalyses(client *api.Client, ids []string, body []byte, summary *analyzeSummary, flags *flagValues) error {
 	for i, id := range ids {
 		_, err := client.Do(api.Request{
 			Method: "POST", Path: "/api/documents/documents/" + url.PathEscape(id) + "/analyze",
 			Body: body, ContentType: "application/json", RetryRateLimit: true,
+			IdempotencyKey: derivedKey(flags, id),
 		})
 		if err == nil {
 			summary.Queued = append(summary.Queued, id)
@@ -126,7 +127,7 @@ func (r *runner) runDocumentsAnalyzeMany(spec Spec, ids []string, flags *flagVal
 		return r.fail(err)
 	}
 	summary := newAnalyzeSummary()
-	stop := r.queueAnalyses(client, ids, body, summary)
+	stop := r.queueAnalyses(client, ids, body, summary, flags)
 	return r.finishAnalyses(summary, stop, flags)
 }
 
@@ -178,6 +179,6 @@ func (r *runner) runDocumentsAnalyzeAll(flags *flagValues, resolved config.Resol
 	summary := newAnalyzeSummary()
 	listed := len(ids)
 	summary.Listed = &listed
-	stop := r.queueAnalyses(client, ids, []byte(`{}`), summary)
+	stop := r.queueAnalyses(client, ids, []byte(`{}`), summary, flags)
 	return r.finishAnalyses(summary, stop, flags)
 }

@@ -305,6 +305,7 @@ func (r *runner) runUnitsImport(immobilieID string, flags *flagValues, resolved 
 		// Dann findet ein zweiter Versuch dieselben Einheiten wieder.
 		response, err := client.Do(api.Request{
 			Method: "POST", Path: path, Body: body, ContentType: "application/json", Idempotent: idempotent,
+			IdempotencyKey: derivedKey(flags, "b"+strconv.Itoa(summary.Batches+1)),
 		})
 		if err != nil {
 			return r.failImport(summary, batchError(err, summary.Batches+1, offset, summary.Batches, records), flags)

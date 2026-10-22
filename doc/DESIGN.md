@@ -70,7 +70,10 @@ Schema-Schicht:
 - `--idempotency-key <key>` → wird als `Idempotency-Key`-Header mitgeschickt.
   Vorbereitend: Das Backend wertet den Header heute noch nicht aus; sobald es
   das tut, werden sichere Retries nach Netzwerkabbrüchen möglich, ohne den
-  CLI-Contract zu ändern.
+  CLI-Contract zu ändern. Befehle mit mehreren Requests leiten den Schlüssel
+  je Request ab (`<key>-b<N>` je Stapel bei `units import`, `units
+  fields-set` und `documents upload`, `<key>-<dokument-id>` bei den
+  Analysen); Wiederholungen desselben Requests behalten ihren Schlüssel.
 
 Was eine Route an Query-Parametern **wirklich** auswertet, steht deklarativ in
 der Spec (`QueryHints []QueryHint{Name, Summary}`) und erscheint daraus in

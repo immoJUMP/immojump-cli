@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/immoJUMP/immojump-cli/internal/api"
@@ -263,6 +264,7 @@ func (r *runner) runUnitsFieldsSet(immobilieID string, flags *flagValues, resolv
 		response, err := client.Do(api.Request{
 			Method: "PUT", Path: "/api/custom-fields/values/batch",
 			Body: body, ContentType: "application/json", Idempotent: true,
+			IdempotencyKey: derivedKey(flags, "b"+strconv.Itoa(batches+1)),
 		})
 		if err != nil {
 			return r.fail(batchError(err, batches+1, offset, batches, records))

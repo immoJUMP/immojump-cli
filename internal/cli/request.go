@@ -611,3 +611,16 @@ func buildTagIDs(flags *flagValues) ([]byte, error) {
 	}
 	return body, nil
 }
+
+// derivedKey leitet aus --idempotency-key einen Schlüssel je Request ab
+// (<key>-b<N> je Stapel, <key>-<id> je Dokument). Derselbe Schlüssel für
+// jeden Request hieße für ein Backend, das ihn auswertet: alles nach dem
+// ersten ist eine Wiederholung. Wiederholungen desselben Requests behalten
+// ihren Schlüssel — genau dafür ist er da.
+func derivedKey(flags *flagValues, suffix string) string {
+	key := strings.TrimSpace(flags.get("idempotency-key"))
+	if key == "" {
+		return ""
+	}
+	return key + "-" + suffix
+}
