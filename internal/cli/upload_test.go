@@ -680,8 +680,8 @@ func TestUploadMapsArchiveMembersToTheArchive(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
 	}
-	if len(h.requests) != 1 {
-		t.Errorf("ein Stapel erwartet (die gesendeten Namen sind verschieden), got %d", len(h.requests))
+	if len(h.requests) != 2 {
+		t.Errorf("zwei Stapel erwartet (ein Archiv geht allein), got %d", len(h.requests))
 	}
 	out := decodeUpload(t, stdout)
 	zip := filepath.Join(root, "datenraum.zip")
@@ -819,7 +819,12 @@ func TestUploadRejectsTooLargeFilesLocally(t *testing.T) {
 func TestUploadEmptyArchiveMemberIsNotTheLooseFile(t *testing.T) {
 	root := dataroom(t, map[string]string{"datenraum.zip": "PK", "leer.pdf": "voll"})
 	h := newHarness(t)
-	h.respond = `{"documents":[{"id":1,"dateiname":"leer.pdf","sourceFile":"leer.pdf"}],"duplicates":[],"failed":[],"empty":["leer.pdf"]}`
+	h.handle = func(rec *recorded) reply {
+		if rec.Multipart.File["files[]"][0].Filename == "datenraum.zip" {
+			return reply{body: `{"documents":[],"duplicates":[],"failed":[],"empty":["leer.pdf"]}`}
+		}
+		return reply{body: `{"documents":[{"id":1,"dateiname":"leer.pdf","sourceFile":"leer.pdf"}],"duplicates":[],"failed":[],"empty":[]}`}
+	}
 	code, stdout, stderr := h.run("documents", "upload", root)
 	if code != 1 {
 		t.Fatalf("Exit 1 (leeres Mitglied) erwartet, got %d (%s)", code, stderr)
@@ -964,5 +969,45 @@ func TestUploadMaxSizeAppliesAtSendTime(t *testing.T) {
 	out := decodeUpload(t, stdout)
 	if len(out.Failed) != 1 || !strings.Contains(out.Failed[0].Message, "zu groß") {
 		t.Errorf("b.pdf als zu groß unter failed erwartet, got %+v", out.Failed)
+	}
+}
+
+// TestUploadArchivesGetTheirOwnBatch: empty nennt nur Mitgliedsnamen. Lägen
+// zwei Archive in einem Stapel, wäre die Herkunft eines leeren Mitglieds
+// unbekannt — deshalb geht jedes Archiv allein.
+func TestUploadArchivesGetTheirOwnBatch(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.zip": "PK", "b.zip": "PK", "c.pdf": "C", "d.rar": "R"})
+	h := newHarness(t)
+	var batches [][]string
+	h.handle = func(rec *recorded) reply {
+		names := []string{}
+		for _, header := range rec.Multipart.File["files[]"] {
+			names = append(names, header.Filename)
+		}
+		batches = append(batches, names)
+		empty := `[]`
+		if strings.HasSuffix(names[0], ".zip") {
+			empty = `["leer.pdf"]`
+		}
+		return reply{body: `{"documents":[],"duplicates":[],"failed":[],"empty":` + empty + `}`}
+	}
+	code, stdout, _ := h.run("documents", "upload", root)
+	if code != 1 {
+		t.Fatalf("Exit 1 (leere Mitglieder) erwartet, got %d", code)
+	}
+	for _, batch := range batches {
+		archives := 0
+		for _, name := range batch {
+			if strings.HasSuffix(name, ".zip") || strings.HasSuffix(name, ".rar") {
+				archives++
+			}
+		}
+		if archives > 0 && len(batch) != 1 {
+			t.Errorf("Archiv nicht allein im Stapel: %v", batch)
+		}
+	}
+	out := decodeUpload(t, stdout)
+	if fmt.Sprint(out.Empty) != fmt.Sprint([]string{filepath.Join(root, "a.zip"), filepath.Join(root, "b.zip")}) {
+		t.Errorf("leere Mitglieder je ihrem Archiv erwartet, got %v", out.Empty)
 	}
 }

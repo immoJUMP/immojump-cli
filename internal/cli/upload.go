@@ -196,6 +196,17 @@ func batchFiles(files []localFile, maxFiles int, maxBytes int64) [][]localFile {
 			}
 			sent := "name:" + strings.ToLower(filepath.Base(file.path))
 			key := "secure:" + uploadNameKey(file.path)
+			if isArchive(file.path) {
+				// Jedes Archiv geht allein: empty nennt nur Mitgliedsnamen,
+				// die Herkunft ist nur so eindeutig.
+				if len(batch) > 0 {
+					later = append(later, file)
+					continue
+				}
+				batch = append(batch, file)
+				later = append(later, pending[i+1:]...)
+				break
+			}
 			if names[sent] || names[key] {
 				later = append(later, file)
 				continue
@@ -281,20 +292,25 @@ func (m *fileMatcher) markUsed(path string) {
 	}
 }
 
-// archive liefert das einzige Archiv des Stapels („“, wenn keins oder
-// mehrere): Ein Name, der zu keiner losen Datei passt, ist dann ein Mitglied.
+// isArchive erkennt Archive, die das Backend entpackt.
+func isArchive(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".zip", ".rar":
+		return true
+	}
+	return false
+}
+
+// archive liefert das Archiv des Stapels („“ ohne) — batchFiles legt nie
+// zwei Archive in einen Stapel. Ein Name, der zu keiner losen Datei passt,
+// ist dann ein Mitglied.
 func (m *fileMatcher) archive() string {
-	found := ""
 	for _, file := range m.files {
-		switch strings.ToLower(filepath.Ext(file.path)) {
-		case ".zip", ".rar":
-			if found != "" {
-				return ""
-			}
-			found = file.path
+		if isArchive(file.path) {
+			return file.path
 		}
 	}
-	return found
+	return ""
 }
 
 func (m *fileMatcher) match(name string) string {
