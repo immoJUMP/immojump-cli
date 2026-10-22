@@ -803,3 +803,25 @@ func TestUploadRejectsTooLargeFilesLocally(t *testing.T) {
 		t.Errorf("--max-file-mb 0: Exit 2 erwartet, got %d", code)
 	}
 }
+
+// TestUploadEmptyArchiveMemberIsNotTheLooseFile: Das ZIP enthält eine leere
+// leer.pdf, daneben liegt eine volle leer.pdf. empty nennt nur Namen — die
+// lose Datei ist über sourceFile schon als hochgeladen erkannt und darf nicht
+// zusätzlich als leer erscheinen; der leere Eintrag gehört zum Archiv.
+func TestUploadEmptyArchiveMemberIsNotTheLooseFile(t *testing.T) {
+	root := dataroom(t, map[string]string{"datenraum.zip": "PK", "leer.pdf": "voll"})
+	h := newHarness(t)
+	h.respond = `{"documents":[{"id":1,"dateiname":"leer.pdf","sourceFile":"leer.pdf"}],"duplicates":[],"failed":[],"empty":["leer.pdf"]}`
+	code, stdout, stderr := h.run("documents", "upload", root)
+	if code != 1 {
+		t.Fatalf("Exit 1 (leeres Mitglied) erwartet, got %d (%s)", code, stderr)
+	}
+	out := decodeUpload(t, stdout)
+	loose := filepath.Join(root, "leer.pdf")
+	if len(out.Uploaded) != 1 || out.Uploaded[0].File != loose {
+		t.Errorf("lose leer.pdf hochgeladen erwartet, got %+v", out.Uploaded)
+	}
+	if len(out.Empty) != 1 || out.Empty[0] != filepath.Join(root, "datenraum.zip") {
+		t.Errorf("leeres Mitglied gehört zum Archiv, got %v", out.Empty)
+	}
+}
