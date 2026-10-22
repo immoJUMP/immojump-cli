@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"archive/zip"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -294,15 +294,14 @@ func (m *fileMatcher) markUsed(path string) {
 	}
 }
 
-// zipCheckMaxEntries begrenzt den ZIP-Vorabcheck: Darüber liest das CLI das
-// zentrale Verzeichnis nicht ein (400k Einträge ≈ 94 MB) — dann urteilt das
-// Backend.
+// zipCheckMaxEntries begrenzt den ZIP-Vorabcheck: Mehr Einträge liest das
+// CLI nicht — dann urteilt das Backend.
 var zipCheckMaxEntries = 10000
 
 // emptyUpload: leere Datei, oder ein ZIP ohne eine nicht-leere Datei. Die
 // Datei wird geöffnet wie beim Senden (os.Root, O_NONBLOCK, Fstat/SameFile,
-// Größe zuerst). RAR, zip64 oder ZIPs über zipCheckMaxEntries Einträgen
-// beurteilt das Backend.
+// Größe zuerst). RAR, zip64, unlesbare ZIPs oder ZIPs über
+// zipCheckMaxEntries Einträgen beurteilt das Backend.
 func emptyUpload(file localFile, maxSize int64) (bool, error) {
 	if file.size == 0 {
 		return true, nil
@@ -318,24 +317,56 @@ func emptyUpload(file localFile, maxSize int64) (bool, error) {
 	if size == 0 {
 		return true, nil
 	}
-	if entries, ok := zipEntryCount(f, size); !ok || entries > zipCheckMaxEntries {
-		return false, nil
-	}
-	reader, err := zip.NewReader(f, size)
-	if err != nil {
-		return false, nil // kein lesbares ZIP: das Backend soll urteilen
-	}
-	for _, member := range reader.File {
-		if !member.FileInfo().IsDir() && member.UncompressedSize64 > 0 {
-			return false, nil
-		}
-	}
-	return true, nil
+	return zipOnlyEmptyFiles(f, size), nil
 }
 
-// zipEntryCount liest die Zahl der Einträge aus dem End-of-Central-Directory,
-// ohne das Verzeichnis selbst zu lesen. ok=false bei zip64 oder unlesbar.
-func zipEntryCount(f *os.File, size int64) (int, bool) {
+// zipOnlyEmptyFiles geht das zentrale Verzeichnis selbst durch, Eintrag für
+// Eintrag mit festem Puffer. archive/zip liest alle Einträge in den Speicher,
+// und die Zahl im End-of-Central-Directory ist nur 16 Bit breit: 65.536
+// Einträge mit Zahl 0 sahen aus wie ein leeres ZIP. Gezählt wird daher, was
+// wirklich dasteht; über zipCheckMaxEntries bricht der Check ab. true nur,
+// wenn das Verzeichnis vollständig gelesen ist und jede Datei 0 Byte hat.
+func zipOnlyEmptyFiles(f io.ReaderAt, size int64) bool {
+	offset, total, ok := zipDirectory(f, size)
+	if !ok {
+		return false
+	}
+	header := make([]byte, 46)
+	name := make([]byte, 0, 256)
+	entries := 0
+	for {
+		if _, err := f.ReadAt(header[:4], offset); err != nil || string(header[:4]) != "PK\x01\x02" {
+			break
+		}
+		entries++
+		if entries > zipCheckMaxEntries {
+			return false
+		}
+		if _, err := f.ReadAt(header, offset); err != nil {
+			return false
+		}
+		uncompressed := binary.LittleEndian.Uint32(header[24:])
+		nameLen := int(binary.LittleEndian.Uint16(header[28:]))
+		rest := int64(binary.LittleEndian.Uint16(header[30:])) + int64(binary.LittleEndian.Uint16(header[32:]))
+		if uncompressed == 0xFFFFFFFF {
+			return false // zip64: das Backend urteilt
+		}
+		name = name[:nameLen]
+		if _, err := f.ReadAt(name, offset+46); err != nil {
+			return false
+		}
+		if uncompressed > 0 && !strings.HasSuffix(string(name), "/") {
+			return false
+		}
+		offset += 46 + int64(nameLen) + rest
+	}
+	// Weicht die gelesene Zahl ab, ist das Verzeichnis kaputt oder gefälscht.
+	return entries == total
+}
+
+// zipDirectory liest Beginn und Eintragszahl des zentralen Verzeichnisses aus
+// dem End-of-Central-Directory. ok=false bei zip64 oder unlesbar.
+func zipDirectory(f io.ReaderAt, size int64) (offset int64, total int, ok bool) {
 	const eocdLen, maxComment = 22, 65535
 	start := size - (eocdLen + maxComment)
 	if start < 0 {
@@ -343,18 +374,19 @@ func zipEntryCount(f *os.File, size int64) (int, bool) {
 	}
 	tail := make([]byte, size-start)
 	if _, err := f.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
-		return 0, false
+		return 0, 0, false
 	}
 	for i := len(tail) - eocdLen; i >= 0; i-- {
 		if tail[i] == 'P' && tail[i+1] == 'K' && tail[i+2] == 5 && tail[i+3] == 6 {
-			total := int(tail[i+10]) | int(tail[i+11])<<8
-			if total == 0xFFFF {
-				return 0, false // zip64
+			total := int(binary.LittleEndian.Uint16(tail[i+10:]))
+			dirOffset := binary.LittleEndian.Uint32(tail[i+16:])
+			if total == 0xFFFF || dirOffset == 0xFFFFFFFF || int64(dirOffset) >= size {
+				return 0, 0, false // zip64 oder kaputt
 			}
-			return total, true
+			return int64(dirOffset), total, true
 		}
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 // isArchive erkennt Archive, die das Backend entpackt.

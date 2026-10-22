@@ -2,6 +2,8 @@ package cli
 
 import (
 	"archive/zip"
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1168,5 +1170,36 @@ func TestUploadUnreadableSuccessBodyMayExist(t *testing.T) {
 	_ = json.Unmarshal([]byte(stdout), &out)
 	if len(out.Failed) != 2 || out.Failed[0]["may_exist"] != true {
 		t.Errorf("may_exist an beiden Dateien erwartet, got %v", out.Failed)
+	}
+}
+
+// TestUploadZipPrecheckIgnoresForgedEntryCount: Die Eintragszahl im
+// End-of-Central-Directory ist nur 16 Bit breit. 65.536 Einträge mit Zahl 0
+// passierten die Grenze, und archive/zip las sie alle ein (Codex, letzte
+// Runde) — größere Varianten kosten Gigabytes. Gezählt wird, was tatsächlich
+// im Verzeichnis steht.
+func TestUploadZipPrecheckIgnoresForgedEntryCount(t *testing.T) {
+	root := dataroom(t, map[string]string{})
+	var dir bytes.Buffer
+	const entries = 1 << 16
+	for i := 0; i < entries; i++ {
+		name := fmt.Sprintf("%05d", i)
+		header := make([]byte, 46)
+		copy(header, "PK\x01\x02")
+		binary.LittleEndian.PutUint16(header[28:], uint16(len(name)))
+		dir.Write(header)
+		dir.WriteString(name)
+	}
+	eocd := make([]byte, 22)
+	copy(eocd, "PK\x05\x06")
+	binary.LittleEndian.PutUint32(eocd[12:], uint32(dir.Len())) // Größe; Zahl und Offset bleiben 0
+	dir.Write(eocd)
+	if err := os.WriteFile(filepath.Join(root, "gefaelscht.zip"), dir.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t)
+	h.respond = `[]`
+	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "gefaelscht.zip")); code != 0 || h.last == nil {
+		t.Errorf("über der Grenze ungeprüft senden erwartet, got %d (%s)", code, stderr)
 	}
 }
