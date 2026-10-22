@@ -455,15 +455,15 @@ immojump units fields-set "$ID" --file marktmieten.ndjson
 immojump units fields-get "$ID" --fields extern_id,values.Marktmiete
 
 # 4. Datenraum hochladen: ein Ordner je Haus, Unterordner mit --recursive
-immojump documents upload datenraum/haus-01 --recursive --immobilie-id "$ID"
-#    Mietverträge direkt an ihre Einheit, wo bekannt (Einheit derselben Immobilie).
-#    Eine einzelne Datei antwortet wie bisher mit dem Array des Backends
-#    (--fields id), mit --report mit dem Bericht.
+immojump documents upload datenraum/haus-01 --recursive --immobilie-id "$ID" > upload-haus-01.json
+#    Danach die Mietverträge ihrer Einheit zuordnen. Die Zuordnung hängt am
+#    Dokument: Ein zweiter Upload derselben Datei wäre ein Duplikat und ordnete
+#    nichts zu (Exit 1, UNIT_ID_NOT_APPLIED mit dem passenden set-unit-Befehl).
 UNIT=$(immojump units list "$ID" --extern-id RH-01-WE-001 --limit 1 --fields items.id | jq -r '.items[0].id')
-immojump documents upload datenraum/haus-01/mietvertraege/WE-001.pdf \
-  --immobilie-id "$ID" --unit-id "$UNIT" --category mietvertrag
-#    nachträglich zuordnen geht auch
-immojump documents set-unit <dokument-id> --unit-id "$UNIT"
+DOC=$(jq -r '.uploaded[] | select(.file | endswith("/WE-001.pdf")) | .id' upload-haus-01.json)
+immojump documents set-unit "$DOC" --unit-id "$UNIT" --fields id,unit_id
+#    Nur für eine neue Datei geht es gleich beim Upload (eine Datei: Array wie bisher):
+#    immojump documents upload neu/WE-002.pdf --immobilie-id "$ID" --unit-id "$UNIT2" --category mietvertrag
 
 # 5. Alle noch nicht analysierten Dokumente analysieren lassen (taktet bei 429)
 immojump documents analyze-all --immobilie-id "$ID"
@@ -504,7 +504,9 @@ Was dabei zu wissen ist:
   endet er mit Exit 1 (`UPLOAD_INCOMPLETE`). Stoppt ein Fehler den Lauf
   (z. B. 401, 403, 429 oder 400 für eine fremde `unit_id`), gilt **dessen**
   Exit-Code (4, 6, 7, 11 …). Wurde `--unit-id` nicht übernommen, endet der
-  Aufruf mit Exit 1 (`UNIT_ID_IGNORED`). In jedem Fall steht der Bericht auf
+  Aufruf mit Exit 1 (`UNIT_ID_IGNORED`); war eine Datei schon vorhanden
+  (Duplikat), ebenfalls Exit 1 (`UNIT_ID_NOT_APPLIED`) mit dem vorhandenen
+  Dokument und dem Befehl `documents set-unit <id> --unit-id …`. In jedem Fall steht der Bericht auf
   stdout.
 - **`may_exist: true`** an einer fehlgeschlagenen Datei heißt: Ihr Stapel
   scheiterte nach dem Senden (5xx, Netzwerk, Timeout), der Server kann sie

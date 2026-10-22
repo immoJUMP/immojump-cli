@@ -1120,7 +1120,7 @@ Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei (eine einz
   - `datei` (mehrfach) — Datei oder Ordner, beliebig viele
 - **Flags:**
   - `--immobilie-id <wert>` — Dokumente dieser Immobilie zuordnen
-  - `--unit-id <wert>` — Dokumente dieser Einheit zuordnen (braucht --immobilie-id, Einheit derselben Immobilie); tragen die Dokumente danach eine andere unit_id, endet der Aufruf mit Exit 1 (UNIT_ID_IGNORED)
+  - `--unit-id <wert>` — Dokumente dieser Einheit zuordnen (braucht --immobilie-id, Einheit derselben Immobilie); tragen die Dokumente danach eine andere unit_id, endet der Aufruf mit Exit 1 (UNIT_ID_IGNORED); ein Duplikat bekommt keine Einheit (Exit 1, UNIT_ID_NOT_APPLIED mit dem passenden set-unit-Befehl)
   - `--category <wert>` — Dokumentart: expose, mieterliste, mietvertrag, energieausweis, grundbuch, grundriss, wohnflaechenberechnung, betriebskosten, teilungserklaerung, wirtschaftsplan, hausgeldabrechnung, weg_protokoll, baulasten, altlasten, bauunterlagen, versicherung, kaufvertrag, rechnung, finanzierung oder sonstiges (ohne Angabe erkennt die Analyse die Art; gilt nicht für ZIP-Archive)
   - `--allow-duplicate` — Upload auch bei erkanntem Duplikat erlauben
   - `--recursive` — Ordner samt Unterordnern hochladen (ohne: nur die Dateien direkt im Ordner)

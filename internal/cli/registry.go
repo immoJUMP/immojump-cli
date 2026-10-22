@@ -1047,7 +1047,7 @@ var Registry = []Spec{
 		Args: []Arg{{Name: "datei", Desc: "Datei oder Ordner, beliebig viele", Variadic: true}},
 		Flags: []Flag{
 			{Name: "immobilie-id", Kind: FlagString, Desc: "Dokumente dieser Immobilie zuordnen"},
-			{Name: "unit-id", Kind: FlagString, Desc: "Dokumente dieser Einheit zuordnen (braucht --immobilie-id, Einheit derselben Immobilie); tragen die Dokumente danach eine andere unit_id, endet der Aufruf mit Exit 1 (UNIT_ID_IGNORED)"},
+			{Name: "unit-id", Kind: FlagString, Desc: "Dokumente dieser Einheit zuordnen (braucht --immobilie-id, Einheit derselben Immobilie); tragen die Dokumente danach eine andere unit_id, endet der Aufruf mit Exit 1 (UNIT_ID_IGNORED); ein Duplikat bekommt keine Einheit (Exit 1, UNIT_ID_NOT_APPLIED mit dem passenden set-unit-Befehl)"},
 			{Name: "category", Kind: FlagString, Desc: documentCategoryDesc + " (ohne Angabe erkennt die Analyse die Art; gilt nicht für ZIP-Archive)"},
 			{Name: "allow-duplicate", Kind: FlagBool, Desc: "Upload auch bei erkanntem Duplikat erlauben"},
 			{Name: "recursive", Kind: FlagBool, Desc: "Ordner samt Unterordnern hochladen (ohne: nur die Dateien direkt im Ordner)"},

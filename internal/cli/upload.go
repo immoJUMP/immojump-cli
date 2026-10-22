@@ -503,6 +503,33 @@ func unitIgnoredErr(unit string, ids []any) *api.Error {
 	}
 }
 
+// unitNotApplied baut den Fehler „--unit-id kam bei Duplikaten nicht an“:
+// Ein Duplikat legt kein Dokument an, also ordnet das Backend auch nichts zu.
+// Je Duplikat nennt er das vorhandene Dokument und den Befehl zum Nachziehen.
+func unitNotApplied(unit string, dups []map[string]any) *api.Error {
+	entries := make([]any, 0, len(dups))
+	for _, dup := range dups {
+		existing := stringID(dup["existingDocumentId"])
+		entry := map[string]any{
+			"existingDocumentId": dup["existingDocumentId"],
+			"existingPropertyId": dup["existingPropertyId"],
+			"hint":               fmt.Sprintf("immojump documents set-unit %s --unit-id %s", existing, unit),
+		}
+		if file, ok := dup["file"]; ok {
+			entry["file"] = file
+		} else if name, ok := dup["fileName"]; ok {
+			entry["file"] = name
+		}
+		entries = append(entries, entry)
+	}
+	return &api.Error{
+		Message: fmt.Sprintf("%d Datei(en) waren schon vorhanden (Duplikat) — --unit-id %s wurde ihnen nicht zugeordnet; "+
+			"nachziehen mit documents set-unit (siehe hint).", len(dups), unit),
+		Code: "UNIT_ID_NOT_APPLIED", Exit: 1,
+		Details: map[string]any{"unit_id_requested": unit, "duplicates": entries},
+	}
+}
+
 // mayHaveBeenStored: Nach 5xx, Netzwerkfehler oder Timeout ist offen, ob der
 // Server den Stapel gespeichert hat. 413 und lokale Fehler lehnen vorher ab.
 func mayHaveBeenStored(err error) bool {
@@ -625,8 +652,13 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		}
 		// Ein einzelnes Archiv kann teilweise scheitern; das steht beim
 		// bisherigen Weg nur in den X-Upload-*-Headern.
-		var failed []map[string]any
+		var failed, legacyDups []map[string]any
 		var empty []string
+		if raw := res.Header.Get("X-Upload-Duplicate-Files"); raw != "" {
+			if err := decodeJSONExact([]byte(raw), &legacyDups); err != nil && unit != "" {
+				legacyDups = []map[string]any{{"fileName": file.path, "raw": shorten(raw, 200)}}
+			}
+		}
 		if raw := res.Header.Get("X-Upload-Failed-Files"); raw != "" {
 			if err := decodeJSONExact([]byte(raw), &failed); err != nil {
 				// Unlesbar heißt nicht „nichts fehlgeschlagen“.
@@ -663,6 +695,9 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 				Code: "UPLOAD_INCOMPLETE", Exit: 1, Details: details,
 			})
 		}
+		if unit != "" && len(legacyDups) > 0 {
+			return r.fail(unitNotApplied(unit, legacyDups))
+		}
 		return 0
 	}
 
@@ -670,6 +705,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 	// stopErr ist der Fehler, der den Lauf beendet hat — sein Exit-Code gilt.
 	var stopErr error
 	var unitIgnoredIDs []any
+	var unitDuplicates []map[string]any
 	report := uploadReport{Uploaded: []uploadedDoc{}, Duplicates: []map[string]any{}, Failed: []failedFile{}, Empty: []string{}}
 	sendable := make([]localFile, 0, len(files))
 	for _, file := range files {
@@ -785,6 +821,9 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 				entry["file"] = path
 			}
 			report.Duplicates = append(report.Duplicates, entry)
+			if unit != "" {
+				unitDuplicates = append(unitDuplicates, entry)
+			}
 		}
 		for _, failed := range parsed.Failed {
 			name := stringID(failed["fileName"])
@@ -828,6 +867,9 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 			Code: "UPLOAD_INCOMPLETE",
 			Exit: 1,
 		})
+	}
+	if len(unitDuplicates) > 0 {
+		return r.fail(unitNotApplied(unit, unitDuplicates))
 	}
 	return 0
 }
