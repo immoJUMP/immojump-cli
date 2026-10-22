@@ -313,11 +313,21 @@ func (f *flagValues) bool(name string) bool {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(f.get(name))) {
-	case "", "true", "1", "ja", "yes":
+	case "", "true", "1":
 		return true
 	default:
 		return false
 	}
+}
+
+// validBool: Schalterwerte, die parseArgs annimmt. Alles andere ist ein
+// Bedienfehler, kein stilles false.
+func validBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "false", "1", "0":
+		return true
+	}
+	return false
 }
 
 // parseArgs trennt positionale Argumente von Flags. Globale Flags dürfen
@@ -350,6 +360,12 @@ func parseArgs(args []string) ([]string, *flagValues, error) {
 		if !known {
 			return nil, nil, usageErr("Unbekanntes Flag %q.%s",
 				arg, suggestion(name, knownFlagNames()))
+		}
+		if kind == FlagBool && hasValue && !validBool(value) {
+			// `--dry-run=tru` war still false — und der Trockenlauf schrieb
+			// echt.
+			return nil, nil, usageErr("--%s=%s ist kein Wahrheitswert — erlaubt sind true/false oder 1/0 (oder --%s ohne Wert)",
+				name, value, name)
 		}
 		if kind != FlagBool && !hasValue {
 			if i+1 >= len(args) {
