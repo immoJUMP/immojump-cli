@@ -259,6 +259,8 @@ func TestUnitsImportCSVNumbersAreStrict(t *testing.T) {
 		{"Punkt ohne Schalter", "extern_id,ist_rent\nA,62.5\n", nil, true, `"ist_rent":62.5`},
 		{"Komma ohne Schalter", "extern_id;ist_rent\nA;62,5\n", nil, false, ""},
 		{"deutscher Tausender ohne Schalter", "extern_id;ist_rent\nA;1.250\n", nil, false, ""},
+		{"negativer deutscher Tausender ohne Schalter", "extern_id;ist_rent\nA;-1.250\n", nil, false, ""},
+		{"negativer Tausender mit Schalter", "extern_id;ist_rent\nA;-1.250\n", []string{"--decimal-comma"}, true, `"ist_rent":-1250`},
 		{"Tausender-Form mit Komma-Trenner bleibt Dezimalpunkt", "extern_id,ist_rent\nA,1.250\n", nil, true, `"ist_rent":1.250`},
 	}
 	for _, tc := range cases {

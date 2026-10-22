@@ -120,7 +120,7 @@ var (
 	plainNumber     = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
 	commaNumber     = regexp.MustCompile(`^-?\d+(,\d+)?$`)
 	groupedComma    = regexp.MustCompile(`^-?\d{1,3}(\.\d{3})+(,\d+)?$`)
-	germanThousands = regexp.MustCompile(`^\d{1,3}(\.\d{3})+$`)
+	germanThousands = regexp.MustCompile(`^-?\d{1,3}(\.\d{3})+$`)
 )
 
 // parseCSVNumber liefert die JSON-Zahl oder, warum der Wert keine ist.
