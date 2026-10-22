@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -250,6 +251,24 @@ func (r *runner) runUnitsFieldsSet(immobilieID string, flags *flagValues, resolv
 		})
 	}
 
+	// Feldnamen und Feld-IDs auflösen wie das Backend (ID oder Name ohne
+	// Groß-/Kleinschreibung) — ohne Organisation nur der exakte Schlüssel.
+	var names map[string]string
+	if resolved.Org != "" {
+		names, err = fieldNames(client, resolved.Org)
+		if err != nil {
+			return r.fail(err)
+		}
+	}
+	if dups := duplicateUnitFields(records, items, names); len(dups) > 0 {
+		return r.fail(&api.Error{
+			Message: fmt.Sprintf("%d Werte setzen dasselbe Feld derselben Einheit ein weiteres Mal — es wurde nichts gesendet.", len(dups)),
+			Code:    "DUPLICATE_FIELD",
+			Exit:    11,
+			Details: map[string]any{"errors": dups},
+		})
+	}
+
 	updated, batches := 0, 0
 	for offset := 0; offset < len(items); offset += fieldValuesMaxWrite {
 		end := offset + fieldValuesMaxWrite
@@ -283,4 +302,54 @@ func (r *runner) runUnitsFieldsSet(immobilieID string, flags *flagValues, resolv
 		Updated int `json:"updated"`
 		Batches int `json:"batches"`
 	}{updated, batches}, flags)
+}
+
+// duplicateUnitFields findet (Einheit, Feld)-Paare, die die Eingabe mehrfach
+// setzt. Über Stapel hinweg überschriebe der spätere PUT den früheren still.
+// names (Feld-ID → Name) löst Aliasse auf; ohne names zählt der Schlüssel
+// ohne Groß-/Kleinschreibung.
+func duplicateUnitFields(records []record, items []fieldItem, names map[string]string) []any {
+	byName := map[string]string{}
+	for id, name := range names {
+		byName[strings.ToLower(strings.TrimSpace(name))] = id
+	}
+	canonical := func(key string) string {
+		if _, ok := names[key]; ok {
+			return "id:" + key
+		}
+		folded := strings.ToLower(strings.TrimSpace(key))
+		if id, ok := byName[folded]; ok {
+			return "id:" + id
+		}
+		return "name:" + folded
+	}
+	first := map[string]int{}
+	var errs []any
+	for i, item := range items {
+		values, _ := item.Values.(map[string]any)
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			pair := item.TargetID + "|" + canonical(key)
+			j, seen := first[pair]
+			if !seen {
+				first[pair] = i
+				continue
+			}
+			entry := map[string]any{
+				"index":     i,
+				"target_id": item.TargetID,
+				"field":     key,
+				"message":   fmt.Sprintf("Feld „%s“ dieser Einheit steht schon in %s.", key, records[j].position(j)),
+			}
+			if records[i].line > 0 {
+				entry["line"] = records[i].line
+			}
+			errs = append(errs, entry)
+		}
+	}
+	return errs
 }

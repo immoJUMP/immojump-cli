@@ -345,3 +345,57 @@ func TestUnitsFieldsPolicy(t *testing.T) {
 		t.Errorf("api PUT values/batch soll write sein, got %q", risk)
 	}
 }
+
+// TestUnitsFieldsSetRejectsDuplicateUnitField: Derselbe Wert derselben
+// Einheit in Eintrag 0 und Eintrag 500 hieße zwei PUTs — der zweite
+// überschriebe den ersten still. Gleich ist, was das Backend gleich auflöst:
+// extern_id/id derselben Einheit, Feldname (ohne Groß-/Kleinschreibung) und
+// Feld-ID.
+func TestUnitsFieldsSetRejectsDuplicateUnitField(t *testing.T) {
+	cases := map[string]string{
+		"gleicher Name über Stapel": `{"extern_id":"RH-0","values":{"Marktmiete":1}}` + "\n" +
+			strings.Repeat(`{"extern_id":"RH-1","values":{"Sanierung":true}}`+"\n", 500) +
+			`{"extern_id":"RH-0","values":{"Marktmiete":2}}`,
+		"Name gegen Feld-ID, extern_id gegen id": `{"extern_id":"RH-0","values":{"Marktmiete":1}}` + "\n" +
+			`{"id":"u0","values":{"d1":2}}`,
+		"Groß-/Kleinschreibung": `{"extern_id":"RH-0","values":{"Marktmiete":1}}` + "\n" +
+			`{"extern_id":"RH-0","values":{"marktmiete":2}}`,
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			b := &fieldsBackend{units: []string{"u0", "u1"}}
+			h.handle = b.handle
+			file := writeTemp(t, "w.ndjson", content)
+			code, _, stderr := h.run("units", "fields-set", "5", "--file", file)
+			if code != 11 {
+				t.Fatalf("Exit 11 erwartet, got %d (%s)", code, stderr)
+			}
+			if len(b.puts) != 0 {
+				t.Error("vor dem ersten PUT abbrechen")
+			}
+			if line := errorLine(t, stderr); line["code"] != "DUPLICATE_FIELD" {
+				t.Errorf("DUPLICATE_FIELD erwartet, got %v", line)
+			}
+		})
+	}
+	t.Run("verschiedene Felder derselben Einheit", func(t *testing.T) {
+		h := newHarness(t)
+		b := &fieldsBackend{units: []string{"u0"}}
+		h.handle = b.handle
+		file := writeTemp(t, "w.ndjson", `{"extern_id":"RH-0","values":{"Marktmiete":1}}`+"\n"+`{"id":"u0","values":{"Sanierung":true}}`)
+		if code, _, stderr := h.run("units", "fields-set", "5", "--file", file); code != 0 {
+			t.Errorf("Exit 0 erwartet, got %d (%s)", code, stderr)
+		}
+	})
+	t.Run("ohne Organisation exakte Schlüssel", func(t *testing.T) {
+		h := newHarness(t)
+		delete(h.env, "IMMOJUMP_ORGANISATION_ID")
+		b := &fieldsBackend{units: []string{"u0"}}
+		h.handle = b.handle
+		file := writeTemp(t, "w.ndjson", `{"extern_id":"RH-0","values":{"Marktmiete":1}}`+"\n"+`{"id":"u0","values":{"marktmiete":2}}`)
+		if code, _, stderr := h.run("units", "fields-set", "5", "--file", file); code != 11 || len(b.puts) != 0 {
+			t.Errorf("Exit 11 ohne PUT erwartet, got %d (%s)", code, stderr)
+		}
+	})
+}
