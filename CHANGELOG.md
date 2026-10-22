@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/immoJUMP/immojump-cli/compare/v0.8.0...v0.9.0) (2026-10-22)
+
+
+### Features
+
+* **release:** Windows-Binaries (amd64, arm64) im Release ([34f1e84](https://github.com/immoJUMP/immojump-cli/commit/34f1e842cb0a4672c41ff7e67721ca0cea73a9d7))
+
+
+### Bug Fixes
+
+* **config:** Config-Pfad unter Windows über USERPROFILE finden ([263576f](https://github.com/immoJUMP/immojump-cli/commit/263576ff0c5bf9dfae97d1b27e9bf81c5d13c4b9))
+
 ## [0.8.0](https://github.com/immoJUMP/immojump-cli/compare/v0.7.0...v0.8.0) (2026-10-22)
 
 
