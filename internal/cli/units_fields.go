@@ -174,6 +174,11 @@ type fieldItem struct {
 
 // runUnitsFieldsSet: Datei lesen, extern_id auflösen, in Stapeln schreiben.
 func (r *runner) runUnitsFieldsSet(immobilieID string, flags *flagValues, resolved config.Resolved) int {
+	// Ohne Organisation lassen sich Feldname und Feld-ID nicht auflösen —
+	// doppelte Werte blieben unerkannt und überschrieben sich still.
+	if err := r.requireOrg("units fields-set", resolved); err != nil {
+		return r.fail(err)
+	}
 	name, raw, err := r.readInput(flags)
 	if err != nil {
 		return r.fail(err)
@@ -251,14 +256,11 @@ func (r *runner) runUnitsFieldsSet(immobilieID string, flags *flagValues, resolv
 		})
 	}
 
-	// Feldnamen und Feld-IDs auflösen wie das Backend (ID oder Name ohne
-	// Groß-/Kleinschreibung) — ohne Organisation nur der exakte Schlüssel.
-	var names map[string]string
-	if resolved.Org != "" {
-		names, err = fieldNames(client, resolved.Org)
-		if err != nil {
-			return r.fail(err)
-		}
+	// Feldnamen und Feld-IDs auflösen wie das Backend (ID oder Name nach
+	// casefold). Scheitert der Abruf, wird nichts geschrieben.
+	names, err := fieldNames(client, resolved.Org)
+	if err != nil {
+		return r.fail(err)
 	}
 	if dups := duplicateUnitFields(records, items, names); len(dups) > 0 {
 		return r.fail(&api.Error{
@@ -311,13 +313,13 @@ func (r *runner) runUnitsFieldsSet(immobilieID string, flags *flagValues, resolv
 func duplicateUnitFields(records []record, items []fieldItem, names map[string]string) []any {
 	byName := map[string]string{}
 	for id, name := range names {
-		byName[strings.ToLower(strings.TrimSpace(name))] = id
+		byName[casefold(name)] = id
 	}
 	canonical := func(key string) string {
 		if _, ok := names[key]; ok {
 			return "id:" + key
 		}
-		folded := strings.ToLower(strings.TrimSpace(key))
+		folded := casefold(strings.TrimSpace(key))
 		if id, ok := byName[folded]; ok {
 			return "id:" + id
 		}
@@ -352,4 +354,12 @@ func duplicateUnitFields(records []record, items []fieldItem, names map[string]s
 		}
 	}
 	return errs
+}
+
+// casefold bildet Pythons str.casefold() für die Fälle nach, die im
+// Deutschen vorkommen: Kleinschreibung plus ß/ẞ → ss und ς → σ. Das Backend
+// vergleicht Feldnamen so (custom_field_routes.py, nach_name).
+func casefold(value string) string {
+	folded := strings.ToLower(value)
+	return strings.NewReplacer("ß", "ss", "ς", "σ").Replace(folded)
 }

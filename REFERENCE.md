@@ -614,7 +614,7 @@ Eigene Feldwerte vieler Einheiten setzen, je 500 ein PUT (extern_id → id über
 - **Endpoint:** `PUT /api/custom-fields/values/batch`
 - **Weitere Aufrufe:**
   - `GET /api/units/immobilie/{immobilie-id}/units (alle Seiten, extern_id → id)`
-  - `GET /api/custom-fields/definitions?model=unit (Feldname ↔ Feld-ID, wenn eine Organisation bekannt ist)`
+  - `GET /api/custom-fields/definitions?model=unit (Feldname ↔ Feld-ID; ohne Organisation oder bei Fehler wird nichts geschrieben)`
 - **Risk:** `write`
 - **Argumente:**
   - `immobilie-id` — ID der Immobilie, zu der die Einheiten gehören
@@ -623,7 +623,7 @@ Eigene Feldwerte vieler Einheiten setzen, je 500 ein PUT (extern_id → id über
   - `--format <wert>` — ndjson oder json (ohne Angabe: aus der Endung, bei stdin aus dem ersten Zeichen)
 - **Body:** `{model: "unit", items: [{target_id, values}]}` in Stapeln zu 500, gebaut aus `--file` (NDJSON oder JSON-Array, je Datensatz `extern_id` oder `id` plus `values`).
 - **Details:**
-  - Setzt die Eingabe dasselbe Feld derselben Einheit mehrfach (auch über extern_id/id, Feldname/Feld-ID oder Groß-/Kleinschreibung), endet der Aufruf vor dem ersten PUT mit Exit 11 (DUPLICATE_FIELD) — über Stapel hinweg überschriebe der spätere Wert sonst still den früheren.
+  - Setzt die Eingabe dasselbe Feld derselben Einheit mehrfach (auch über extern_id/id, Feldname/Feld-ID oder Schreibweise — verglichen wie im Backend, „Straße“ = „STRASSE“), endet der Aufruf vor dem ersten PUT mit Exit 11 (DUPLICATE_FIELD) — über Stapel hinweg überschriebe der spätere Wert sonst still den früheren.
 - **Beispiel:** `immojump units fields-set 5 --file marktmieten.ndjson`
 
 #### units create
