@@ -597,7 +597,10 @@ daran nichts ändert.
 Lesende Aufrufe wiederholt das CLI selbst: bei 429, 502, 503, 504 und
 Netzwerkfehlern bis zu zweimal (also drei Versuche), mit Pausen von 1 s, 2 s …
 bzw. dem `Retry-After` des Servers, höchstens 30 s. `--retries N` ändert die
-Zahl, `--retries 0` schaltet das ab. Schreibende Befehle laufen genau einmal —
+Zahl, `--retries 0` schaltet das ab. `--timeout` gilt **je Versuch**: Ein
+lesender Aufruf darf nach einem Timeout erneut versuchen und braucht dann
+bis zu (`--retries`+1) × `--timeout` plus Pausen; ein Schreibaufruf wird nach
+einem Timeout nie wiederholt (ob er angekommen ist, weiß niemand). Schreibende Befehle laufen genau einmal —
 eine Wiederholung könnte doppelt anlegen. Jede Wiederholung steht als
 `{"warning":true,…}`-Zeile auf stderr.
 

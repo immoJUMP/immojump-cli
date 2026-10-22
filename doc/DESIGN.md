@@ -342,6 +342,11 @@ Versuche. Die Pause ist exponentiell (1 s, 2 s, 4 s …); ein `Retry-After`
 damit ein Retry-After von einer Stunde keinen Agenten blockiert. `--retries N`
 setzt die Zahl der Wiederholungen, `--retries 0` schaltet sie ab.
 
+Ein Timeout (`code: TIMEOUT`, Exit 8) wird nur bei lesenden Aufrufen
+wiederholt; `--timeout` gilt je Versuch. Nach einem Timeout eines
+Schreibaufrufs — auch eines idempotenten — ist offen, ob er angekommen ist,
+und eine Wiederholung hebelte die Zeitgrenze aus.
+
 500 wird bewusst nicht wiederholt: ein Fehler im Backend wird durch
 Wiederholen nicht besser. Schreibende Aufrufe laufen **genau einmal** — auch
 mit `--retries`. Ein POST, dessen Antwort unterwegs verloren ging, kann
