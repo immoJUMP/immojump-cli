@@ -504,6 +504,8 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 	}
 
 	heuristicWarned := false
+	// stopErr ist der Fehler, der den Lauf beendet hat — sein Exit-Code gilt.
+	var stopErr error
 	report := uploadReport{Uploaded: []uploadedDoc{}, Duplicates: []map[string]any{}, Failed: []failedFile{}, Empty: []string{}}
 	batches := batchFiles(files, maxFiles, int64(maxMB*1024*1024))
 	failBatch := func(batch []localFile, message string) {
@@ -551,6 +553,7 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 				for _, rest := range batches[i:] {
 					failBatch(rest, err.Error())
 				}
+				stopErr = err
 				break
 			}
 			failBatch(batch, err.Error())
@@ -617,6 +620,9 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 	}
 	if err := r.render(raw, "application/json", flags); err != nil {
 		return r.fail(err)
+	}
+	if stopErr != nil {
+		return r.fail(stopErr)
 	}
 	if len(report.Failed) > 0 {
 		return r.fail(&api.Error{
