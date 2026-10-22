@@ -40,3 +40,22 @@ func TestInputRejectsTrailingJSON(t *testing.T) {
 		})
 	}
 }
+
+// TestJSONInputToleratesBOM: Excel und Windows-Editoren schreiben gern ein
+// BOM vor JSON — NDJSON und CSV vertrugen das schon, JSON-Dateien nicht.
+func TestJSONInputToleratesBOM(t *testing.T) {
+	h := newHarness(t)
+	b := &bulkBackend{}
+	h.handle = b.handle
+	file := writeTemp(t, "m.json", "\uFEFF"+`[{"extern_id":"A"}]`)
+	if code, _, stderr := h.run("units", "import", "5", "--file", file); code != 0 {
+		t.Fatalf("Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+	h2 := newHarness(t)
+	fb := &fieldsBackend{units: []string{"u0"}}
+	h2.handle = fb.handle
+	file2 := writeTemp(t, "w.json", "\uFEFF"+`{"items":[{"extern_id":"RH-0","values":{"a":1}}]}`)
+	if code, _, stderr := h2.run("units", "fields-set", "5", "--file", file2); code != 0 {
+		t.Fatalf("fields-set: Exit 0 erwartet, got %d (%s)", code, stderr)
+	}
+}
