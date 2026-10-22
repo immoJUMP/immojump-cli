@@ -1238,3 +1238,28 @@ func TestUploadZipPrecheckKeepsRealArchives(t *testing.T) {
 		t.Errorf("leeres ZIP mit langem Namen: Exit 1 ohne Request erwartet, got %d", code)
 	}
 }
+
+// TestUploadZipPrecheckAmbiguousEndIsSent: Ein Archiv-Kommentar mit einer
+// zweiten, leeren EOCD-Signatur ließ archive/zip ein Verzeichnis ohne Einträge
+// wählen. Das CLI hielt das ZIP für leer und schickte den Mietvertrag nicht
+// (Codex). Mehrdeutig heißt: das Backend urteilt.
+func TestUploadZipPrecheckAmbiguousEndIsSent(t *testing.T) {
+	root := dataroom(t, map[string]string{})
+	f, err := os.Create(filepath.Join(root, "kommentar.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := zip.NewWriter(f)
+	part, _ := w.Create("vertrag.pdf")
+	_, _ = part.Write([]byte("%PDF-1 Inhalt"))
+	if err := w.SetComment("PK\x05\x06" + strings.Repeat("\x00", 18)); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+	_ = f.Close()
+	h := newHarness(t)
+	h.respond = `[]`
+	if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "kommentar.zip")); code != 0 || h.last == nil {
+		t.Errorf("senden erwartet, got %d (%s)", code, stderr)
+	}
+}

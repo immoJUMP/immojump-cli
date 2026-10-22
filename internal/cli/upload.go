@@ -345,7 +345,11 @@ func emptyUpload(file localFile, maxSize int64) (bool, error) {
 }
 
 // zipEntryCount liest die Zahl der Einträge aus dem End-of-Central-Directory,
-// ohne das Verzeichnis selbst zu lesen. ok=false bei zip64 oder unlesbar.
+// ohne das Verzeichnis selbst zu lesen. ok=false bei zip64, unlesbar oder
+// mehrdeutig: Steht die Signatur mehr als einmal im Ende der Datei (etwa im
+// Archiv-Kommentar) oder passt die Kommentarlänge nicht bis ans Dateiende,
+// wählt archive/zip womöglich ein falsches, leeres Verzeichnis — dann urteilt
+// das Backend.
 func zipEntryCount(f *os.File, size int64) (int, bool) {
 	const eocdLen, maxComment = 22, 65535
 	start := size - (eocdLen + maxComment)
@@ -356,16 +360,27 @@ func zipEntryCount(f *os.File, size int64) (int, bool) {
 	if _, err := f.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
 		return 0, false
 	}
-	for i := len(tail) - eocdLen; i >= 0; i-- {
+	found := -1
+	for i := len(tail) - 4; i >= 0; i-- {
 		if tail[i] == 'P' && tail[i+1] == 'K' && tail[i+2] == 5 && tail[i+3] == 6 {
-			total := int(tail[i+10]) | int(tail[i+11])<<8
-			if total == 0xFFFF {
-				return 0, false // zip64
+			if found >= 0 {
+				return 0, false // mehrdeutig
 			}
-			return total, true
+			found = i
 		}
 	}
-	return 0, false
+	if found < 0 || found+eocdLen > len(tail) {
+		return 0, false
+	}
+	comment := int(tail[found+20]) | int(tail[found+21])<<8
+	if found+eocdLen+comment != len(tail) {
+		return 0, false
+	}
+	total := int(tail[found+10]) | int(tail[found+11])<<8
+	if total == 0xFFFF {
+		return 0, false // zip64
+	}
+	return total, true
 }
 
 // isArchive erkennt Archive, die das Backend entpackt.
