@@ -480,6 +480,9 @@ zwischen Aufzählung und Senden untergeschobener Symlink fällt so auf.
 Geöffnet wird über `os.Root` (je Ordner-Argument, bei einer einzelnen Datei
 ihr Ordner): Auch ein Unterordner, der zwischen zwei Stapeln durch einen
 Symlink nach außen ersetzt wird, führt nicht aus dem Datenraum heraus.
+Geöffnet wird mit `O_NONBLOCK` (Unix): Eine untergeschobene Named Pipe ohne
+Schreiber ließe `open(2)` sonst blockieren, bevor die Typprüfung greift.
+Der Timeout beginnt vor dem Bau des Bodys.
 Symlinks werden nie hochgeladen; `report=true` und Bericht `{uploaded, duplicates, failed,
 empty}` mit lokalem Pfad je Datei — Exit 0 nur ohne `failed`. Zugeordnet
 wird über `sourceFile` des Backends, den Namen so, wie er gesendet wurde (bei

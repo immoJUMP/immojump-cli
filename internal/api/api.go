@@ -297,6 +297,10 @@ func parseRetryAfter(raw string, now time.Time) time.Duration {
 // doOnce ist genau ein HTTP-Versuch. Der Body wird je Versuch neu gebaut —
 // ein gelesener Reader ließe sich nicht ein zweites Mal senden.
 func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
+	// Der Timeout beginnt vor dem Bau des Bodys: Auch das Öffnen und Prüfen
+	// der Upload-Dateien zählt zu --timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout())
+	defer cancel()
 	body, contentType, length, err := buildBody(req)
 	if err != nil {
 		var localErr *Error
@@ -315,9 +319,7 @@ func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
 	}
 	// Der Timeout hängt am Context, damit er auch dann greift, wenn der
 	// HTTP-Client von außen kommt und keinen eigenen mitbringt. Der Body ist
-	// vollständig gelesen, bevor doOnce zurückkehrt — cancel darf hier stehen.
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout())
-	defer cancel()
+	// vollständig gelesen, bevor doOnce zurückkehrt — cancel steht oben.
 	httpReq, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
 		return nil, &Error{Message: fmt.Sprintf("Request nicht baubar: %v", err), Exit: 2}
@@ -462,10 +464,14 @@ func localFileErr(path, format string, a ...any) *Error {
 // dieselbe Datei sein. Die Länge kommt aus genau diesem Fstat.
 func openUploadFile(file FilePart) (*os.File, int64, error) {
 	path := file.Path
-	lstat, open := os.Lstat, os.Open
+	lstat := os.Lstat
+	// O_NONBLOCK: Wird die Datei vor dem Öffnen durch eine Named Pipe
+	// ersetzt, blockierte open(2) sonst ohne Schreiber für immer.
+	open := func(name string) (*os.File, error) { return os.OpenFile(name, os.O_RDONLY|nonblockFlag, 0) }
 	name := path
 	if file.Root != nil {
-		lstat, open, name = file.Root.Lstat, file.Root.Open, file.Name
+		lstat, name = file.Root.Lstat, file.Name
+		open = func(name string) (*os.File, error) { return file.Root.OpenFile(name, os.O_RDONLY|nonblockFlag, 0) }
 	}
 	before, err := lstat(name)
 	if err != nil {
@@ -485,6 +491,10 @@ func openUploadFile(file FilePart) (*os.File, int64, error) {
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
 		_ = f.Close()
 		return nil, 0, localFileErr(path, "%s wurde zwischen Prüfung und Öffnen ausgetauscht — nicht hochgeladen", path)
+	}
+	if err := clearNonblock(f); err != nil {
+		_ = f.Close()
+		return nil, 0, localFileErr(path, "Datei %s nicht lesbar: %v", path, err)
 	}
 	if hookAfterStat != nil {
 		hookAfterStat(path)
