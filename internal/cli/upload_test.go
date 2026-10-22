@@ -385,8 +385,12 @@ func TestUploadAbortOnFirstBatchNamesWhatWasNotSent(t *testing.T) {
 	if code != 11 {
 		t.Fatalf("Exit 11 erwartet, got %d (%s)", code, stderr)
 	}
-	if stdout != "" || len(h.requests) != 1 {
-		t.Errorf("leeres stdout und ein Request erwartet, got %q / %d", stdout, len(h.requests))
+	if len(h.requests) != 1 {
+		t.Errorf("ein Request erwartet, got %d", len(h.requests))
+	}
+	// Der Bericht steht trotzdem auf stdout: alle drei Dateien unter failed.
+	if out := decodeUpload(t, stdout); len(out.Failed) != 3 || len(out.Uploaded) != 0 {
+		t.Errorf("Bericht mit drei fehlgeschlagenen Dateien erwartet, got %+v", out)
 	}
 	line := errorLine(t, stderr)
 	if line["batch"] != float64(1) || line["batches"] != float64(3) || line["files_total"] != float64(3) || line["files_not_sent"] != float64(2) {
@@ -853,5 +857,26 @@ func TestUploadMarksPossiblyStoredFiles(t *testing.T) {
 	_ = json.Unmarshal([]byte(stdout), &out)
 	if len(out.Failed) != 2 || out.Failed[0]["may_exist"] != true || out.Failed[1]["may_exist"] != nil {
 		t.Errorf("a.pdf (504) mit may_exist, b.pdf (413) ohne erwartet, got %v", out.Failed)
+	}
+}
+
+// TestUploadFirstBatchAbortKeepsLocalRejections: Bricht schon der erste
+// Stapel ab, gehen die lokal abgelehnten Dateien (zu groß) nicht verloren.
+func TestUploadFirstBatchAbortKeepsLocalRejections(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B", "gross.pdf": strings.Repeat("x", 4096)})
+	h := newHarness(t)
+	h.status = 403
+	h.respond = `{"message":"Keine Berechtigung."}`
+	code, stdout, stderr := h.run("documents", "upload", root, "--batch-files", "1", "--max-file-mb", "0.001")
+	if code != 6 {
+		t.Fatalf("Exit 6 erwartet, got %d (%s)", code, stderr)
+	}
+	out := decodeUpload(t, stdout)
+	messages := map[string]string{}
+	for _, f := range out.Failed {
+		messages[filepath.Base(f.File)] = f.Message
+	}
+	if len(out.Failed) != 3 || !strings.Contains(messages["gross.pdf"], "zu groß") || messages["b.pdf"] == "" {
+		t.Errorf("gross.pdf (zu groß), a.pdf und b.pdf unter failed erwartet, got %+v", out.Failed)
 	}
 }
