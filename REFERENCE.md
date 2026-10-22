@@ -583,7 +583,7 @@ Einheiten aus einer Mieterliste anlegen oder aktualisieren (in Stapeln, Abgleich
   - `--delimiter <wert>` — CSV-Trennzeichen ; oder , (ohne Angabe: das häufigere in der Kopfzeile)
 - **Body:** `{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).
 - **Details:**
-  - Felder je Einheit wie im Backend: extern_id, einheit, type, livingspace, rooms, ist_rent, soll_rent, soll_rent2, note, order, lease_start_date, last_rent_increase_date, id.
+  - Felder je Einheit wie im Backend: extern_id, einheit, type, livingspace, rooms, ist_rent, soll_rent, soll_rent2, note, order, lease_start_date, last_rent_increase_date, soll_rent_from, planned_sale_date, id.
   - Erneut ausführen ist sicher: Einheiten mit id oder extern_id werden wiedergefunden und nur geändert, was mitkommt. Zeilen ohne beides legt jeder Lauf neu an.
   - Jeder Stapel ist für sich alles oder nichts. Scheitert Stapel k, sind die Stapel davor gespeichert: ihre Summe steht mit complete: false auf stdout, committed_batches in der Fehlerzeile; errors[].index zeigt in die Datei, line auf die Zeile. Nach der Korrektur einfach die ganze Datei erneut importieren.
   - Eine id oder extern_id, die in der Datei doppelt steht, bricht vor dem ersten Stapel ab (Exit 11, DUPLICATE_KEY) — ebenso zwei Einträge, die über id und extern_id dieselbe vorhandene Einheit treffen.
@@ -648,6 +648,8 @@ Weitere Einheit anlegen (die leere „Einheit 1“ einer neuen Immobilie zuerst 
   - `--order <wert>` — Position in der Mieterliste (ohne Angabe: ans Ende, hinter „Einheit 1“ und alle vorhandenen)
   - `--lease-start-date <wert>` — Mietbeginn als YYYY-MM-DD oder DD.MM.YYYY
   - `--last-rent-increase-date <wert>` — Letzte Mieterhöhung als YYYY-MM-DD oder DD.MM.YYYY
+  - `--soll-rent-from <wert>` — Prognose: ab diesem Tag gilt --soll-rent statt --ist-rent, z. B. Neuvermietung; YYYY-MM-DD oder DD.MM.YYYY (ohne Angabe: keine Änderung geplant)
+  - `--planned-sale-date <wert>` — Prognose: geplanter Einzelverkauf zum Ende dieses Monats, Preis aus dem Aufteiler-Rechner; YYYY-MM-DD oder DD.MM.YYYY
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
 - **Beispiel:** `immojump units create 5 --einheit 'WE 2' --livingspace 62.5 --rooms 2 --ist-rent 540`
 
@@ -672,6 +674,8 @@ Einheit ändern (nur gesetzte Felder ändern sich; die Soll-Mieten ziehen nicht 
   - `--order <wert>` — Position in der Mieterliste
   - `--lease-start-date <wert>` — Mietbeginn als YYYY-MM-DD oder DD.MM.YYYY (löschen: --set lease_start_date=null)
   - `--last-rent-increase-date <wert>` — Letzte Mieterhöhung als YYYY-MM-DD oder DD.MM.YYYY (löschen: --set last_rent_increase_date=null)
+  - `--soll-rent-from <wert>` — Prognose: ab diesem Tag gilt die Soll-Miete statt der Ist-Miete; YYYY-MM-DD oder DD.MM.YYYY (löschen: --set soll_rent_from=null)
+  - `--planned-sale-date <wert>` — Prognose: geplanter Einzelverkauf zum Ende dieses Monats; YYYY-MM-DD oder DD.MM.YYYY (löschen: --set planned_sale_date=null)
 - **Body:** `--body '<json>'`, `--body @datei` oder `--body -` (stdin), dazu `--set pfad=wert` (wiederholbar).
 - **Beispiel:** `immojump units update 9 --einheit 'WE 1' --livingspace 58 --ist-rent 480 --soll-rent 480 --soll-rent2 480`
 

@@ -13,6 +13,9 @@ import (
 var unitBackendFields = []string{
 	"einheit", "livingspace", "rooms", "type", "ist_rent", "soll_rent", "soll_rent2",
 	"note", "order", "lease_start_date", "last_rent_increase_date",
+	// Prognose (immo-calc #2151/#2157): ab wann die Soll-Miete gilt, und der
+	// geplante Einzelverkauf zum Monatsende.
+	"soll_rent_from", "planned_sale_date",
 }
 
 // unitTypes spiegelt das Enum UnitType (immo-calc modules/unit.py). Ein
