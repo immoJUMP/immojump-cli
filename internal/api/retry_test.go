@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -345,5 +346,60 @@ func TestRateLimitOnlyRetriesJust429(t *testing.T) {
 		if atomic.LoadInt32(calls) != 1 {
 			t.Errorf("%d: genau ein Versuch erwartet, got %d", status, *calls)
 		}
+	}
+}
+
+// slowFirst antwortet beim ersten Aufruf zu spät, danach sofort.
+func slowFirst(t *testing.T) (*httptest.Server, *int32) {
+	t.Helper()
+	var calls int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(func() { close(release); srv.Close() })
+	return srv, &calls
+}
+
+// TestTimeoutIsNeverRetriedForWrites: Ein Timeout sagt nicht, ob der Aufruf
+// angekommen ist — und eine Wiederholung hebelte --timeout aus. Auch ein
+// idempotenter Schreibaufruf läuft deshalb nach einem Timeout nicht noch mal.
+func TestTimeoutIsNeverRetriedForWrites(t *testing.T) {
+	srv, calls := slowFirst(t)
+	var sleeps []time.Duration
+	c := retryClient(srv, &sleeps)
+	c.Timeout = 50 * time.Millisecond
+	_, err := c.Do(Request{Method: "POST", Path: "/api/x", Body: []byte(`{}`), Idempotent: true})
+	if err == nil {
+		t.Fatal("Timeout-Fehler erwartet")
+	}
+	if atomic.LoadInt32(calls) != 1 {
+		t.Errorf("keine Wiederholung nach Timeout erwartet, got %d Versuche", *calls)
+	}
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "TIMEOUT" || ExitCodeFor(err) != 8 {
+		t.Errorf("Code TIMEOUT mit Exit 8 erwartet, got %#v", err)
+	}
+}
+
+// TestTimeoutIsRetriedForReads: Lesen darf nach einem Timeout erneut
+// versuchen — --timeout gilt je Versuch.
+func TestTimeoutIsRetriedForReads(t *testing.T) {
+	srv, calls := slowFirst(t)
+	var sleeps []time.Duration
+	c := retryClient(srv, &sleeps)
+	c.Timeout = 50 * time.Millisecond
+	if _, err := c.Do(Request{Method: "GET", Path: "/api/x"}); err != nil {
+		t.Fatalf("Erfolg im zweiten Versuch erwartet, got %v", err)
+	}
+	if atomic.LoadInt32(calls) != 2 {
+		t.Errorf("zwei Versuche erwartet, got %d", *calls)
 	}
 }

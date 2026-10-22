@@ -356,7 +356,7 @@ var GlobalFlags = []Flag{
 	{Name: "readonly", Kind: FlagBool, Desc: "Nur lesende Befehle zulassen"},
 	{Name: "allow", Kind: FlagString, Desc: "Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW)"},
 	{Name: "idempotency-key", Kind: FlagString, Desc: "Wird als Idempotency-Key-Header mitgeschickt"},
-	{Name: "timeout", Kind: FlagString, Desc: "Timeout je Request in Sekunden (Default 60, documents upload 300 je Stapel)"},
+	{Name: "timeout", Kind: FlagString, Desc: "Timeout je Versuch in Sekunden (Default 60, documents upload 300 je Stapel); lesende Aufrufe dürfen nach einem Timeout wiederholen, Schreibaufrufe nie"},
 	{Name: "retries", Kind: FlagString, Desc: "Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); " +
 		"gilt für lesende Aufrufe und idempotente Stapel (units import mit id/extern_id, units fields-set); " +
 		"documents analyze/analyze-all warten nur ein 429 ab; andere Schreibbefehle nie"},

@@ -46,7 +46,7 @@ Nicht von Hand bearbeiten — neue Endpoints entstehen als Spec-Zeile in
 | `--readonly` | Nur lesende Befehle zulassen |
 | `--allow <wert>` | Erlaubte Risk-Level, z. B. read,write (Env: IMMOJUMP_ALLOW) |
 | `--idempotency-key <wert>` | Wird als Idempotency-Key-Header mitgeschickt |
-| `--timeout <wert>` | Timeout je Request in Sekunden (Default 60, documents upload 300 je Stapel) |
+| `--timeout <wert>` | Timeout je Versuch in Sekunden (Default 60, documents upload 300 je Stapel); lesende Aufrufe dürfen nach einem Timeout wiederholen, Schreibaufrufe nie |
 | `--retries <wert>` | Wiederholungen bei 429/502/503/504 und Netzwerkfehlern (Default 2, also höchstens 3 Versuche); gilt für lesende Aufrufe und idempotente Stapel (units import mit id/extern_id, units fields-set); documents analyze/analyze-all warten nur ein 429 ab; andere Schreibbefehle nie |
 | `--verbose` | Methode und aufgerufene URL vor dem Request auf stderr zeigen |
 | `--version` | Version ausgeben |

@@ -143,7 +143,7 @@ func (e *Error) Retryable() bool {
 	}
 	switch e.Status {
 	case 0:
-		return e.Code == "NETWORK"
+		return e.Code == "NETWORK" || e.Code == "TIMEOUT"
 	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
 	default:
@@ -243,6 +243,11 @@ func (c *Client) Do(req Request) (*Response, error) {
 			return res, err
 		}
 		if !idempotent && apiErr.Status != http.StatusTooManyRequests {
+			return res, err
+		}
+		if apiErr.Code == "TIMEOUT" && method != http.MethodGet && method != http.MethodHead {
+			// Ein Timeout sagt nicht, ob der Schreibaufruf angekommen ist —
+			// und eine Wiederholung hebelte --timeout aus.
 			return res, err
 		}
 		wait := retryWait(attempt, apiErr.RetryAfter)
@@ -359,6 +364,13 @@ func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
 			// Ein Fehler an einer lokalen Datei ist kein Netzwerkproblem —
 			// ein Retry änderte daran nichts.
 			return nil, localErr
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, &Error{
+				Message: fmt.Sprintf("Keine Antwort von %s innerhalb von %s (--timeout, je Versuch)", c.BaseURL, c.timeout()),
+				Code:    "TIMEOUT",
+				Err:     err,
+			}
 		}
 		return nil, &Error{
 			Status:  0,
