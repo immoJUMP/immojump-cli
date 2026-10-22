@@ -65,3 +65,18 @@ func TestImmobilienSetStatusVerlangtEineZahl(t *testing.T) {
 		t.Error("ohne gültige ID darf kein Request rausgehen")
 	}
 }
+
+// TestImmobilienGetExcludeNamesEveryPart: Die Route kennt genau diese Teile
+// (DETAIL_EXCLUDABLE in immobilie_v2_routes.py); ein unbekannter Wert ist 400.
+func TestImmobilienGetExcludeNamesEveryPart(t *testing.T) {
+	spec, _ := Lookup("immobilien", "get")
+	flag, ok := findFlag(spec, "exclude")
+	if !ok {
+		t.Fatal("--exclude fehlt")
+	}
+	for _, part := range []string{"units", "dokumente", "owners", "loans", "tags"} {
+		if !strings.Contains(flag.Desc, part) {
+			t.Errorf("--exclude soll %q nennen: %q", part, flag.Desc)
+		}
+	}
+}
