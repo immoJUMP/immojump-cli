@@ -395,6 +395,15 @@ func (c *Client) doOnce(req Request, method, target string) (*Response, error) {
 
 	raw, err := io.ReadAll(httpRes.Body)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			// Header kamen, der Body nicht: genauso ein Timeout — ein
+			// Schreibaufruf wird danach nicht wiederholt.
+			return nil, &Error{
+				Message: fmt.Sprintf("Antwort von %s nicht vollständig innerhalb von %s (--timeout, je Versuch)", c.BaseURL, c.timeout()),
+				Code:    "TIMEOUT",
+				Err:     err,
+			}
+		}
 		return nil, &Error{Message: fmt.Sprintf("Antwort nicht lesbar: %v", err), Code: "NETWORK", Err: err}
 	}
 

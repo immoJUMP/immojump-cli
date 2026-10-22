@@ -403,3 +403,34 @@ func TestTimeoutIsRetriedForReads(t *testing.T) {
 		t.Errorf("zwei Versuche erwartet, got %d", *calls)
 	}
 }
+
+// TestTimeoutWhileReadingBodyIsTimeout: Der Server schickt die Header und
+// hängt dann im Body. Das ist genauso ein Timeout — ein idempotenter
+// Schreibstapel darf danach nicht noch einmal gesendet werden.
+func TestTimeoutWhileReadingBodyIsTimeout(t *testing.T) {
+	var calls int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"created":`))
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer func() { close(release); srv.Close() }()
+	var sleeps []time.Duration
+	c := retryClient(srv, &sleeps)
+	c.Timeout = 100 * time.Millisecond
+	_, err := c.Do(Request{Method: "POST", Path: "/api/x", Body: []byte(`{}`), Idempotent: true})
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "TIMEOUT" {
+		t.Fatalf("Code TIMEOUT erwartet, got %#v", err)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Errorf("keine Wiederholung nach Timeout im Body erwartet, got %d Versuche", calls)
+	}
+}
