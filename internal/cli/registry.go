@@ -325,6 +325,7 @@ var Resources = []ResourceInfo{
 	{"contacts", "Kontakte"},
 	{"immobilien", "Immobilien"},
 	{"units", "Einheiten einer Immobilie"},
+	{"deals", "Deals: Ankaufs- und Verkaufsvorgänge über eine oder mehrere Immobilien"},
 	{"activities", "Aktivitäten und Aufgaben"},
 	{"pipelines", "Pipelines und ihre Phasen"},
 	{"statuses", "Status (Phasen) einzeln bearbeiten"},
@@ -409,6 +410,30 @@ const documentCategoryDesc = "Dokumentart: expose, mieterliste, mietvertrag, ene
 
 // analysisStatusDesc nennt die Werte von dokument.analysis_status.
 const analysisStatusDesc = "Analyse-Status: not_started, queued, processing, completed oder failed"
+
+// dealFlags sind die Sugar-Flags von deals create und deals update — Feldnamen
+// aus DealSchema (modules/schemas/deal_schema.py). Alle übrigen Felder
+// (description, currency, expected_close_date, assignee_ids, tag_ids …) gehen
+// über --set.
+var dealFlags = []Flag{
+	{Name: "name", Kind: FlagString, Desc: "Name des Deals"},
+	{Name: "status-id", Kind: FlagNumber, Desc: "ID der Phase (Deal-Pipeline: pipelines statuses <pipeline-id>)"},
+	{Name: "deal-amount", Kind: FlagNumber, Desc: "Volumen in Euro, z. B. 1250000 oder 249999.50"},
+	{Name: "probability", Kind: FlagNumber, Desc: "Abschlusswahrscheinlichkeit in Prozent (0–100)"},
+	{Name: "immobilie-ids", Kind: FlagList,
+		Desc: "IDs der Immobilien, kommagetrennt oder wiederholt; ersetzt die Zuordnung, leer löst alle"},
+	{Name: "contact-ids", Kind: FlagList,
+		Desc: "IDs (UUID) der Kontakte, kommagetrennt oder wiederholt; ersetzt die Zuordnung, leer löst alle"},
+}
+
+var dealBody = []FlagBody{
+	{Flag: "name", Key: "name"},
+	{Flag: "status-id", Key: "status_id"},
+	{Flag: "deal-amount", Key: "deal_amount"},
+	{Flag: "probability", Key: "probability"},
+	{Flag: "immobilie-ids", Key: "immobilie_ids"},
+	{Flag: "contact-ids", Key: "contact_ids"},
+}
 
 // idArg ist die häufigste Argument-Definition.
 func idArg(desc string) []Arg { return []Arg{{Name: "id", Desc: desc}} }
@@ -1232,6 +1257,68 @@ var Registry = []Spec{
 		Example: "immojump tags set contact 42 --tag-ids 3,7",
 	},
 
+	// --- deals ------------------------------------------------------------
+	// deal_routes.py liest die Organisation aus Query (Listen) bzw. Body
+	// (Anlegen), nie aus dem Header X-Organisation-Id — ohne sie antwortet die
+	// Route mit 400 „organisation_id is required". Gelöscht wird weich
+	// (Papierkorb, deals deleted/restore).
+	{
+		Resource: "deals", Verb: "list", Risk: RiskRead,
+		Summary: "Deals der Organisation auflisten, neueste zuerst (immer die ganze Liste als Array; page/per_page wertet die Route nicht aus)",
+		Method:  "GET", Path: "/api/deals", OrgQuery: "organisation_id",
+		QueryHints: []QueryHint{
+			{"status_ids", "Phasen-IDs, wiederholt angeben (?status_ids=7&status_ids=9); ODER-verknüpft, keine Zahl ergibt 400"},
+			{"status_id", "eine Phasen-ID (Alias zu status_ids, kombinierbar)"},
+			{"pipeline_id", "nur Deals in Phasen dieser Pipeline"},
+			{"search", "Teilwort in Name oder Beschreibung, Groß-/Kleinschreibung egal"},
+		},
+		Example: "immojump deals list -q status_ids=7 --fields id,name,status_id,deal_amount",
+	},
+	{
+		Resource: "deals", Verb: "get", Risk: RiskRead,
+		Summary: "Einen Deal laden", Method: "GET", Path: "/api/deals/{id}",
+		Args:    idArg("ID (UUID) des Deals"),
+		Example: "immojump deals get 0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10",
+	},
+	{
+		Resource: "deals", Verb: "create", Risk: RiskWrite,
+		Summary: "Deal anlegen (name ist Pflicht; ohne ihn antwortet das Backend mit 400)",
+		Method:  "POST", Path: "/api/deals", OrgBody: "organisation_id",
+		Flags:   dealFlags,
+		Body:    dealBody,
+		Example: "immojump deals create --name 'MFH Köln' --status-id 7 --deal-amount 1250000 --immobilie-ids 5",
+	},
+	{
+		Resource: "deals", Verb: "update", Risk: RiskWrite,
+		Summary: "Einzelne Felder eines Deals ändern (nur gesetzte Felder; Listen ersetzen die bisherige Zuordnung)",
+		Method:  "PATCH", Path: "/api/deals/{id}",
+		Args:          idArg("ID (UUID) des Deals"),
+		Flags:         dealFlags,
+		Body:          dealBody,
+		EmptyBodyHint: "Nichts zu ändern. Setze mindestens ein Feld, z. B. --probability 80 (alle: immojump deals update --help)",
+		Example:       "immojump deals update 0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10 --probability 80 --set next_step=Notartermin",
+	},
+	{
+		Resource: "deals", Verb: "delete", Risk: RiskDestructive,
+		Summary: "Deal löschen (Papierkorb; deals restore holt ihn zurück)",
+		Method:  "DELETE", Path: "/api/deals/{id}",
+		Args:    idArg("ID (UUID) des Deals"),
+		Example: "immojump deals delete 0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10",
+	},
+	{
+		Resource: "deals", Verb: "deleted", Risk: RiskRead,
+		Summary: "Papierkorb: gelöschte Deals (nur Admins; Antwort {deals: [{id, name, immobilie_count, deleted_at, deleted_by_id}]})",
+		Method:  "GET", Path: "/api/deals/deleted", OrgQuery: "organisation_id",
+		Example: "immojump deals deleted --fields deals.id,deals.name,deals.deleted_at",
+	},
+	{
+		Resource: "deals", Verb: "restore", Risk: RiskWrite,
+		Summary: "Gelöschten Deal aus dem Papierkorb zurückholen",
+		Method:  "POST", Path: "/api/deals/{id}/restore",
+		Args:    idArg("ID (UUID) des Deals"),
+		Example: "immojump deals restore 0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10",
+	},
+
 	// --- fields (benutzerdefinierte Felder) ---------------------------------
 	// custom_field_routes.py liest organisation_id aus Query bzw. Body; ohne
 	// fällt es auf die Org des Web-Logins zurück — nicht die des Contexts.
@@ -1849,10 +1936,11 @@ var Registry = []Spec{
 			{Name: "method", Desc: "HTTP-Methode, z. B. GET oder POST"},
 			{Name: "pfad", Desc: "Pfad ab /api/, z. B. /api/deals"},
 		},
-		// status_ids ist der Parameter, den die Deals-Route wirklich liest
-		// (modules/routes/deal_routes.py) — ein Beispiel, das stillschweigend
-		// nichts filtert, wäre schlimmer als gar keins.
-		Example: "immojump api GET /api/deals -q status_ids=7",
+		// Bewusst eine Route, der der Header nicht genügt: deal_routes.py liest
+		// die Organisation nur aus dem Query, und der Escape-Hatch ergänzt sie
+		// nicht. Ohne -q organisation_id endete genau dieses Beispiel mit 400
+		// „organisation_id is required" (TestAPIExampleSendsTheOrgParameter).
+		Example: "immojump api GET /api/deals -q organisation_id=<org-id> -q status_ids=7",
 	},
 	{
 		Resource: "docs", Risk: RiskRead, Local: true, Special: SpecialDocs,

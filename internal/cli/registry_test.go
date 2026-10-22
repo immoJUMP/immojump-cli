@@ -166,6 +166,7 @@ func TestListCommandsAdvertiseTheirQueryParameters(t *testing.T) {
 		"documents list":    {"immobilien_id"},
 		"statuses list":     {"lite"},
 		"tags list":         {"for"},
+		"deals list":        {"status_ids", "status_id", "pipeline_id", "search"},
 	}
 	for name, params := range want {
 		parts := strings.SplitN(name, " ", 2)
@@ -211,6 +212,39 @@ func TestNoExampleUsesUnsupportedParameters(t *testing.T) {
 				t.Errorf("%q: Beispiel nutzt -q %s=…, das der Befehl nicht als QueryHint führt",
 					spec.Name(), key)
 			}
+		}
+	}
+}
+
+// TestAPIExampleSendsTheOrgParameter: `api GET /api/deals -q status_ids=7`
+// endete gegen das echte Backend mit 400 „organisation_id is required" — die
+// Deals-Route liest die Organisation nur aus dem Query, der Header genügt ihr
+// nicht. Kennt die Registry die Route des Beispiels mit OrgQuery bzw. OrgBody,
+// muss das Beispiel den Parameter selbst mitschicken: Der Escape-Hatch ergänzt
+// ihn nicht.
+func TestAPIExampleSendsTheOrgParameter(t *testing.T) {
+	spec, ok := Lookup("api", "")
+	if !ok {
+		t.Fatal("api fehlt in der Registry")
+	}
+	// immojump api <METHOD> <pfad> …
+	words := strings.Fields(spec.Example)
+	if len(words) < 4 {
+		t.Fatalf("Beispiel %q nennt keine Methode und keinen Pfad", spec.Example)
+	}
+	method, path := words[2], words[3]
+	for _, target := range Registry {
+		if target.Local || target.Special == SpecialAPI ||
+			!strings.EqualFold(target.Method, method) || !matchPathTemplate(target.Path, path) {
+			continue
+		}
+		if target.OrgQuery != "" && !strings.Contains(spec.Example, "-q "+target.OrgQuery+"=") {
+			t.Errorf("Beispiel %q: %s %s liest die Organisation nur aus dem Query — -q %s=<org-id> fehlt",
+				spec.Example, method, path, target.OrgQuery)
+		}
+		if target.OrgBody != "" && !strings.Contains(spec.Example, "--set "+target.OrgBody+"=") {
+			t.Errorf("Beispiel %q: %s %s liest die Organisation nur aus dem Body — --set %s=<org-id> fehlt",
+				spec.Example, method, path, target.OrgBody)
 		}
 	}
 }
@@ -322,6 +356,7 @@ func TestRegistryCoversDesignScope(t *testing.T) {
 		"documents":  {"list", "upload", "rename", "set-unit", "delete", "analyze", "analyze-all", "analyze-details", "mark-reviewed", "analysis-results"},
 		"tags":       {"list", "create", "update", "delete", "of", "set"},
 		"fields":     {"list", "create"},
+		"deals":      {"list", "get", "create", "update", "delete", "deleted", "restore"},
 		"shares":     {"list", "create", "update", "revoke"},
 		"feed": {"list", "by-context", "comments", "channels", "attachments", "mentions",
 			"post", "comment", "comment-object", "react", "seen", "edit", "comment-edit",

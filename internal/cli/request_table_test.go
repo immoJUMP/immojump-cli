@@ -11,6 +11,9 @@ import (
 // TestCommandRequestTable prüft für JEDEN Befehl der Registry, welchen
 // HTTP-Request das CLI daraus baut. Das ist der Vertrag zum Backend.
 func TestCommandRequestTable(t *testing.T) {
+	// Deals und Kontakte haben UUIDs (deal_routes.py: <uuid:deal_id>).
+	const testDealID = "0b5e2c9a-1d3f-4e6b-9a7c-2f8d1e4b6a10"
+	const testContactID = "7c4d9e21-5a6b-4f80-b1c2-3d4e5f607182"
 	cases := []struct {
 		name      string
 		args      []string
@@ -370,6 +373,38 @@ func TestCommandRequestTable(t *testing.T) {
 			method: "GET", path: "/api/notifications"},
 		{name: "notifications read-all", args: []string{"notifications", "read-all"},
 			method: "POST", path: "/api/notifications/read-all", body: `{}`},
+
+		// --- deals --------------------------------------------------------
+		// deal_routes.py liest die Organisation nur aus Query (Listen) bzw.
+		// Body (Anlegen) — der Header X-Organisation-Id allein ergibt 400
+		// „organisation_id is required".
+		{name: "deals list", args: []string{"deals", "list"},
+			method: "GET", path: "/api/deals", query: url.Values{"organisation_id": {"org-test"}}},
+		{name: "deals list gefiltert", args: []string{"deals", "list", "-q", "status_ids=7", "-q", "status_ids=9",
+			"-q", "pipeline_id=3", "-q", "search=Köln"},
+			method: "GET", path: "/api/deals",
+			query: url.Values{"organisation_id": {"org-test"}, "status_ids": {"7", "9"}, "pipeline_id": {"3"}, "search": {"Köln"}}},
+		{name: "deals get", args: []string{"deals", "get", testDealID},
+			method: "GET", path: "/api/deals/" + testDealID},
+		{name: "deals create", args: []string{"deals", "create", "--name", "MFH Köln", "--status-id", "7",
+			"--deal-amount", "250000.50", "--probability", "60", "--immobilie-ids", "5,6", "--contact-ids", testContactID},
+			method: "POST", path: "/api/deals",
+			body: `{"organisation_id":"org-test","name":"MFH Köln","status_id":7,"deal_amount":250000.50,` +
+				`"probability":60,"immobilie_ids":["5","6"],"contact_ids":["` + testContactID + `"]}`},
+		{name: "deals create mit --body", args: []string{"deals", "create", "--body", `{"name":"ETW Bonn","next_step":"Besichtigung"}`},
+			method: "POST", path: "/api/deals",
+			body: `{"organisation_id":"org-test","name":"ETW Bonn","next_step":"Besichtigung"}`},
+		{name: "deals update", args: []string{"deals", "update", testDealID, "--probability", "80", "--set", "next_step=Notartermin"},
+			method: "PATCH", path: "/api/deals/" + testDealID, body: `{"probability":80,"next_step":"Notartermin"}`},
+		// Eine leere Liste ist gewollt: Sie löst alle Immobilien vom Deal.
+		{name: "deals update löst alle Immobilien", args: []string{"deals", "update", testDealID, "--immobilie-ids", ""},
+			method: "PATCH", path: "/api/deals/" + testDealID, body: `{"immobilie_ids":[]}`},
+		{name: "deals delete", args: []string{"deals", "delete", testDealID},
+			method: "DELETE", path: "/api/deals/" + testDealID},
+		{name: "deals deleted", args: []string{"deals", "deleted"},
+			method: "GET", path: "/api/deals/deleted", query: url.Values{"organisation_id": {"org-test"}}},
+		{name: "deals restore", args: []string{"deals", "restore", testDealID},
+			method: "POST", path: "/api/deals/" + testDealID + "/restore", body: `{}`},
 
 		// --- api (Escape-Hatch) -------------------------------------------
 		{name: "api GET", args: []string{"api", "GET", "/api/deals"}, method: "GET", path: "/api/deals"},

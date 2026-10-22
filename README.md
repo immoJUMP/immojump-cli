@@ -187,8 +187,9 @@ immojump contacts create --set first_name=Ada --set last_name=Lovelace
 immojump immobilien create --body @neubau.json
 echo '{"name":"MFH Köln"}' | immojump immobilien create --body -
 
-# Escape-Hatch für alles ohne kuratierten Befehl
-immojump api GET /api/deals -q status_ids=7
+# Escape-Hatch für alles ohne kuratierten Befehl — die Organisation steht
+# im Header; Routen, die sie im Query erwarten, brauchen sie zusätzlich
+immojump api GET /api/deals -q organisation_id=<org-id> -q status_ids=7
 ```
 
 `--set` interpretiert den Wert als JSON-Literal, sonst als String:
@@ -440,6 +441,29 @@ Organisation; `--org` wirkt dort nicht, weil die Route
 Nicht enthalten: der SSE-Stream (`GET /stream`) — eine langlaufende Verbindung
 passt nicht zum Ein-Request-Modell dieses CLI. Und `POST /uploads`, weil
 Anhänge im Feed einen eigenen Multipart-Weg brauchen.
+
+### Deals
+
+Ein Deal bündelt einen Ankauf oder Verkauf über eine oder mehrere Immobilien
+und läuft durch eine Deal-Pipeline.
+
+```bash
+# Alle Deals einer Phase (status_ids wiederholbar, dazu pipeline_id, search)
+immojump deals list -q status_ids=7 --fields id,name,status_id,deal_amount
+
+# Anlegen und später fortschreiben — Listen ersetzen die bisherige Zuordnung
+immojump deals create --name 'MFH Köln' --status-id 7 --deal-amount 1250000 --immobilie-ids 5
+immojump deals update <deal-id> --probability 80 --set next_step=Notartermin
+
+# Löschen landet im Papierkorb (nur Admins sehen ihn)
+immojump deals delete <deal-id>
+immojump deals deleted --fields deals.id,deals.name
+immojump deals restore <deal-id>
+```
+
+Die Deals-Routen lesen die Organisation nicht aus dem Header, sondern aus
+`?organisation_id=` bzw. dem Body. Die `deals`-Befehle ergänzen sie aus dem
+Context; über `api …` muss sie selbst mitkommen.
 
 ## Großbestand / Portfolio-Import
 
