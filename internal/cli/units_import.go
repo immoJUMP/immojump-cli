@@ -156,6 +156,14 @@ type importSummary struct {
 	DryRun             bool         `json:"dry_run"`
 	Batches            int          `json:"batches"`
 	Items              []importItem `json:"items"`
+	// Complete ist false, wenn ein Stapel scheiterte — die Zahlen gelten dann
+	// für die gespeicherten Stapel davor.
+	Complete bool `json:"complete"`
+	// AmbiguousRetry: Mindestens ein Stapel gelang erst nach einem Versuch,
+	// der angekommen sein kann (5xx, Netzwerk). Dessen created/unchanged
+	// beschreiben die Wiederholung und können vom ersten Versuch abweichen.
+	AmbiguousRetry   bool  `json:"ambiguous_retry,omitempty"`
+	AmbiguousBatches []int `json:"ambiguous_batches,omitempty"`
 }
 
 type importItem struct {
@@ -299,12 +307,16 @@ func (r *runner) runUnitsImport(immobilieID string, flags *flagValues, resolved 
 			Method: "POST", Path: path, Body: body, ContentType: "application/json", Idempotent: idempotent,
 		})
 		if err != nil {
-			return r.fail(batchError(err, summary.Batches+1, offset, summary.Batches, records))
+			return r.failImport(summary, batchError(err, summary.Batches+1, offset, summary.Batches, records), flags)
 		}
 		var result bulkResponse
 		if err := decodeJSONExact(response.Body, &result); err != nil {
-			return r.fail(batchError(&api.Error{Message: "Antwort des Stapels ist kein JSON: " + err.Error(), Exit: 1},
-				summary.Batches+1, offset, summary.Batches, records))
+			return r.failImport(summary, batchError(&api.Error{Message: "Antwort des Stapels ist kein JSON: " + err.Error(), Exit: 1},
+				summary.Batches+1, offset, summary.Batches, records), flags)
+		}
+		if response.AmbiguousRetry {
+			summary.AmbiguousRetry = true
+			summary.AmbiguousBatches = append(summary.AmbiguousBatches, summary.Batches+1)
 		}
 		summary.Created += result.Created
 		summary.Updated += result.Updated
@@ -317,5 +329,17 @@ func (r *runner) runUnitsImport(immobilieID string, flags *flagValues, resolved 
 		}
 		summary.Batches++
 	}
+	summary.Complete = true
 	return r.emit(summary, flags)
+}
+
+// failImport schreibt die Summe der gespeicherten Stapel (complete: false)
+// auf stdout und den Fehler auf stderr — sonst sähe der Agent nicht, was
+// schon angelegt ist.
+func (r *runner) failImport(summary importSummary, err error, flags *flagValues) int {
+	summary.Complete = false
+	if raw, marshalErr := output.Marshal(summary); marshalErr == nil {
+		_ = r.render(raw, "application/json", flags)
+	}
+	return r.fail(err)
 }

@@ -483,10 +483,14 @@ Was dabei zu wissen ist:
   `placeholder_removed`, `batches`, `items`). Die leere Start-„Einheit 1“ einer
   neuen Immobilie entfernt das Backend, sobald der Import Einheiten anlegt.
   Jeder Stapel ist für sich alles oder nichts; scheitert Stapel *k* (Exit 11),
-  sind die Stapel davor gespeichert (`committed_batches` in der Fehlerzeile),
-  und `errors[].index`/`line` zeigen in die Datei. Korrigieren, die ganze Datei
+  sind die Stapel davor gespeichert — ihre Summe steht mit `complete: false`
+  auf stdout, `committed_batches` in der Fehlerzeile —, und
+  `errors[].index`/`line` zeigen in die Datei. Korrigieren, die ganze Datei
   erneut importieren. Eine `id` oder `extern_id`, die in der Datei doppelt
-  steht, bricht vor dem ersten Stapel ab.
+  steht, bricht vor dem ersten Stapel ab. `ambiguous_retry: true` heißt: Ein
+  Stapel gelang erst nach einem Versuch, der angekommen sein kann (5xx,
+  Netzwerk) — seine `created`/`unchanged` können vom tatsächlichen ersten
+  Lauf abweichen.
 - **`documents upload`** mit Ordner, mehreren Dateien oder `--report` berichtet
   je Datei:
   `{uploaded: [{id, dateiname, file}], duplicates, failed: [{file, message}], empty}`.
