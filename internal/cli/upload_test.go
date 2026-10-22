@@ -742,3 +742,22 @@ func TestUploadSingleArchiveReportsPartialFailure(t *testing.T) {
 		})
 	}
 }
+
+// TestUploadEmptyFilesAreIncomplete: Eine leere Datei ist nicht hochgeladen —
+// Exit 0 sagte dem Agenten das Gegenteil.
+func TestUploadEmptyFilesAreIncomplete(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "leer.pdf": ""})
+	h := newHarness(t)
+	h.respond = `{"documents":[{"id":1,"dateiname":"a.pdf","sourceFile":"a.pdf"}],"duplicates":[],"failed":[],"empty":["leer.pdf"]}`
+	code, stdout, stderr := h.run("documents", "upload", root)
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d (%s)", code, stderr)
+	}
+	if out := decodeUpload(t, stdout); len(out.Empty) != 1 {
+		t.Errorf("leere Datei im Bericht erwartet, got %+v", out)
+	}
+	line := errorLine(t, stderr)
+	if line["code"] != "UPLOAD_INCOMPLETE" || !strings.Contains(line["message"].(string), "leer") {
+		t.Errorf("UPLOAD_INCOMPLETE mit Hinweis auf leere Dateien erwartet, got %v", line)
+	}
+}

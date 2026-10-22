@@ -1128,7 +1128,7 @@ Dateien oder ganze Ordner hochladen, in Stapeln, mit Bericht je Datei (eine einz
 - **Details:**
   - Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code. Scheitern Teile (etwa Mitglieder eines ZIP) oder sind leer, steht das als JSON auf stderr und der Aufruf endet mit Exit 1.
   - Ordner, mehrere Dateien oder --report: Ausgabe {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.
-  - Exit 0 nur, wenn nichts fehlgeschlagen ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.
+  - Exit 0 nur, wenn nichts fehlgeschlagen und nichts leer ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.
   - Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.
   - Symbolische Links werden nie hochgeladen (im Ordner übersprungen, ausdrücklich genannt Exit 2). Beim Senden wird jede Datei innerhalb ihres Ordner-Arguments geöffnet (os.Root — kein Symlink und kein .. führt hinaus, auch kein nachträglich getauschter Unterordner) und geprüft (Lstat, Fstat, gleiche Datei); scheitert das, steht sie unter failed und der Rest des Stapels geht raus.
   - Dateien werden von der Platte gestreamt; Timeout je Stapel 300 s (OCR), --timeout ändert das.
