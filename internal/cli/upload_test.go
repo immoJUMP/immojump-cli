@@ -1053,3 +1053,54 @@ func TestUploadSingleEmptyFileIsIncompleteLocally(t *testing.T) {
 		t.Errorf("ZIP mit Inhalt soll gesendet werden, got %d (%s)", code, stderr)
 	}
 }
+
+// TestUploadUnitIDNotAppliedToDuplicates: Ist die Datei schon da, legt das
+// Backend kein Dokument an — und ordnet folglich auch keiner Einheit zu.
+// Genau der README-Ablauf (erst der Ordner, dann der Mietvertrag mit
+// --unit-id) endete so mit Exit 0, ohne Zuordnung.
+func TestUploadUnitIDNotAppliedToDuplicates(t *testing.T) {
+	root := dataroom(t, map[string]string{"WE-001.pdf": "A", "neu.pdf": "B"})
+	t.Run("Bericht", func(t *testing.T) {
+		h := newHarness(t)
+		h.respond = `{"documents":[{"id":2,"dateiname":"neu.pdf","unit_id":"u-1","sourceFile":"neu.pdf"}],` +
+			`"duplicates":[{"fileName":"WE-001.pdf","existingDocumentId":"d-9","existingPropertyId":"5","sourceFile":"WE-001.pdf"}],"failed":[],"empty":[]}`
+		code, stdout, stderr := h.run("documents", "upload", root, "--immobilie-id", "5", "--unit-id", "u-1")
+		if code != 1 {
+			t.Fatalf("Exit 1 erwartet, got %d (%s)", code, stderr)
+		}
+		if out := decodeUpload(t, stdout); len(out.Duplicates) != 1 {
+			t.Errorf("Bericht bleibt auf stdout, got %+v", out)
+		}
+		line := errorLine(t, stderr)
+		if line["code"] != "UNIT_ID_NOT_APPLIED" {
+			t.Fatalf("UNIT_ID_NOT_APPLIED erwartet, got %v", line)
+		}
+		dups, _ := line["duplicates"].([]any)
+		entry, _ := dups[0].(map[string]any)
+		if len(dups) != 1 || entry["existingDocumentId"] != "d-9" || entry["existingPropertyId"] != "5" ||
+			!strings.Contains(fmt.Sprint(entry["hint"]), "documents set-unit d-9 --unit-id u-1") {
+			t.Errorf("Duplikat mit existingDocumentId, existingPropertyId und Hinweis erwartet, got %v", dups)
+		}
+	})
+	t.Run("einzelne Datei", func(t *testing.T) {
+		h := newHarness(t)
+		h.handle = func(rec *recorded) reply {
+			return reply{body: `[]`, header: http.Header{"X-Upload-Duplicate-Files": {
+				`[{"fileName":"WE-001.pdf","existingDocumentId":"d-9","existingPropertyId":"5"}]`}}}
+		}
+		code, stdout, stderr := h.run("documents", "upload", filepath.Join(root, "WE-001.pdf"), "--immobilie-id", "5", "--unit-id", "u-1")
+		if code != 1 || strings.TrimSpace(stdout) != "[]" {
+			t.Fatalf("Exit 1 und unverändertes Array erwartet, got %d %q (%s)", code, stdout, stderr)
+		}
+		if line := errorLine(t, stderr); line["code"] != "UNIT_ID_NOT_APPLIED" {
+			t.Errorf("UNIT_ID_NOT_APPLIED erwartet, got %v", line)
+		}
+	})
+	t.Run("ohne --unit-id bleibt ein Duplikat Erfolg", func(t *testing.T) {
+		h := newHarness(t)
+		h.respond = `{"documents":[],"duplicates":[{"fileName":"WE-001.pdf","existingDocumentId":"d-9","sourceFile":"WE-001.pdf"}],"failed":[],"empty":[]}`
+		if code, _, stderr := h.run("documents", "upload", filepath.Join(root, "WE-001.pdf"), "--report"); code != 0 {
+			t.Errorf("Exit 0 erwartet, got %d (%s)", code, stderr)
+		}
+	})
+}
