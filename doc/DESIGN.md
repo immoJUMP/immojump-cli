@@ -584,8 +584,21 @@ sich umbenennen, aber nicht überschreiben lässt.
   (`CHECKSUM_MISMATCH`). Beides Exit 1.
 - **Risk `write`**, `--check` zählt als `read`: Ein Agent unter `--readonly`
   darf nachsehen, aber nicht die Maschine verändern.
+- **Nur die offizielle Quelle.** Weiterleitungen folgt `update` nur
+  innerhalb der Release-Quelle oder per HTTPS auf GitHubs Speicher-Hosts
+  (`release-assets.githubusercontent.com` u. a.); HTTPS→HTTP und fremde Hosts
+  brechen mit `RELEASE_UNTRUSTED` ab. Sonst könnte ein Redirect Binary und
+  Prüfsumme gemeinsam aus fremder Hand liefern. Die Prüfsumme stammt aus
+  demselben Release — sie schützt vor kaputten und umgeleiteten Downloads,
+  nicht vor einem kompromittierten Release selbst (dafür bräuchte es
+  signierte Releases; Vertrauensmodell wie `install.sh`).
 - **Kein Token an GitHub.** Der Release-Client ist ein eigener HTTP-Client
   ohne Auth-Header.
+- **Windows:** Zwischen den beiden Umbenennungen (`exe`→`.old`, neu→`exe`)
+  liegt ein kurzer Moment ohne Binary am Pfad. Scheitert die zweite, wird
+  zurückbenannt; bricht der Prozess genau dort ab, `immojump.exe.old` von
+  Hand zurück auf `immojump.exe` umbenennen oder `install.sh` erneut laufen
+  lassen.
 - Entwicklungs-Builds (`dev`) haben keine vergleichbare Version und brechen
   mit `DEV_BUILD` ab.
 
@@ -596,8 +609,10 @@ und ändern nie Exit-Code oder stdout:
    `CI` und `IMMOJUMP_NO_UPDATE_CHECK` leer sind und die Version lesbar ist.
    Der Abruf läuft parallel zum Befehl (2 s Timeout) und höchstens einmal in
    24 Stunden; der Stand liegt in `update-check.json` neben der
-   `config.json`. Ein Fehlschlag bleibt still und wird erst am nächsten Tag
-   wiederholt.
+   `config.json`. Nach dem Befehl wartet der Aufruf höchstens 300 ms auf den
+   Abruf, dann endet er ohne Hinweis. Ein Fehlschlag oder ein zu langsamer
+   Abruf bleibt still und wird erst am nächsten Tag wiederholt; lässt sich
+   der Stand nicht speichern, unterbleibt der Abruf ganz.
 2. **Mindestversion des Servers, für alle.** Das CLI schickt
    `User-Agent: immojump-cli/<version>`; das Backend antwortet mit
    `X-Immojump-Cli-Min-Version`. Liegt die installierte Version darunter,

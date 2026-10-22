@@ -19,16 +19,20 @@ import (
 // fakeRelease spielt GitHub: /releases/latest leitet auf den Tag um, unter
 // /releases/download/<tag>/ liegen Binary und SHA256SUMS.txt.
 type fakeRelease struct {
-	t       *testing.T
-	server  *httptest.Server
-	tag     string
-	binary  []byte
-	sums    string // leer: korrekte Prüfsumme wird erzeugt
-	noSums  bool
-	latest  int // Status für /releases/latest (0 = 302)
-	mu      sync.Mutex
-	paths   []string
-	headers []http.Header
+	t      *testing.T
+	server *httptest.Server
+	tag    string
+	binary []byte
+	sums   string // leer: korrekte Prüfsumme wird erzeugt
+	noSums bool
+	latest int // Status für /releases/latest (0 = 302)
+	// latestDelay verzögert /releases/latest (langsames Netz).
+	latestDelay time.Duration
+	// assetBase: Ziel der Download-Weiterleitung (leer = dieser Server).
+	assetBase string
+	mu        sync.Mutex
+	paths     []string
+	headers   []http.Header
 }
 
 func assetName() string {
@@ -50,6 +54,13 @@ func newFakeRelease(t *testing.T, tag string, binary []byte) *fakeRelease {
 		download := "/releases/download/" + f.tag + "/"
 		switch {
 		case r.URL.Path == "/releases/latest":
+			if f.latestDelay > 0 {
+				select {
+				case <-time.After(f.latestDelay):
+				case <-r.Context().Done():
+					return
+				}
+			}
 			if f.latest != 0 {
 				w.WriteHeader(f.latest)
 				return
@@ -57,7 +68,11 @@ func newFakeRelease(t *testing.T, tag string, binary []byte) *fakeRelease {
 			http.Redirect(w, r, f.server.URL+"/releases/tag/"+f.tag, http.StatusFound)
 		case strings.HasPrefix(r.URL.Path, download):
 			// Wie GitHub: Downloads leiten auf den Speicher-Host weiter.
-			http.Redirect(w, r, f.server.URL+"/assets/"+strings.TrimPrefix(r.URL.Path, download), http.StatusFound)
+			assetBase := f.server.URL
+			if f.assetBase != "" {
+				assetBase = f.assetBase
+			}
+			http.Redirect(w, r, assetBase+"/assets/"+strings.TrimPrefix(r.URL.Path, download), http.StatusFound)
 		case r.URL.Path == "/assets/"+assetName():
 			_, _ = w.Write(f.binary)
 		case r.URL.Path == "/assets/SHA256SUMS.txt" && !f.noSums:
@@ -271,6 +286,59 @@ func TestUpdateRejectsChecksumMismatch(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Dir(u.exe))
 	if len(entries) != 1 {
 		t.Errorf("Reste des Downloads liegen herum: %d Einträge", len(entries))
+	}
+}
+
+// TestUpdateRejectsForeignRedirect: Leitet ein Download aus der offiziellen
+// Release-Quelle heraus, wird nichts geladen — auch wenn die fremde Quelle eine
+// passende SHA256SUMS.txt mitliefert.
+func TestUpdateRejectsForeignRedirect(t *testing.T) {
+	foreign := newFakeRelease(t, "v0.10.0", []byte("fremd"))
+	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
+	release.assetBase = foreign.server.URL
+	u := newUpdateRun(t, "v0.4.0", release)
+
+	code, _, stderr := u.run("update")
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d (%s)", code, stderr)
+	}
+	if got := errorLine(t, stderr)["code"]; got != "RELEASE_UNTRUSTED" {
+		t.Errorf("code RELEASE_UNTRUSTED erwartet, got %v", got)
+	}
+	if foreign.downloaded() {
+		t.Error("Binary von der fremden Quelle geladen")
+	}
+	if got := u.exeContent(); got != "alt" {
+		t.Errorf("Binary trotz fremder Quelle ersetzt: %q", got)
+	}
+}
+
+// TestReleaseRedirectPolicy: Weiterleitungen nur innerhalb der Release-Quelle
+// oder per HTTPS auf GitHubs Speicher-Hosts.
+func TestReleaseRedirectPolicy(t *testing.T) {
+	policy := releaseRedirectPolicy("https://github.com/immoJUMP/immojump-cli")
+	cases := map[string]bool{
+		"https://github.com/immoJUMP/immojump-cli/releases/download/v1/x":  true,
+		"https://release-assets.githubusercontent.com/github-production/x": true,
+		"https://objects.githubusercontent.com/github-production/x":        true,
+		"http://release-assets.githubusercontent.com/github-production/x":  false,
+		"https://release-assets.githubusercontent.com:8443/x":              false,
+		"https://evil.example.com/x":                                       false,
+		"https://release-assets.githubusercontent.com.evil.example.com/x":  false,
+		"http://github.com/immoJUMP/immojump-cli/releases/download/v1/x":   false,
+	}
+	for target, allowed := range cases {
+		req, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = policy(req, []*http.Request{{}})
+		if allowed && err != nil {
+			t.Errorf("%s: erlaubt erwartet, got %v", target, err)
+		}
+		if !allowed && err == nil {
+			t.Errorf("%s: abgelehnt erwartet", target)
+		}
 	}
 }
 
