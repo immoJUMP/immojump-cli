@@ -1151,3 +1151,22 @@ func TestUploadSingleReportBatchFailureKeepsReport(t *testing.T) {
 		t.Errorf("beide Dateien mit may_exist erwartet, got %v", out.Failed)
 	}
 }
+
+// TestUploadUnreadableSuccessBodyMayExist: Ein 2xx mit unlesbarem Body heißt:
+// Der Server hat angenommen — ob er gespeichert hat, ist offen.
+func TestUploadUnreadableSuccessBodyMayExist(t *testing.T) {
+	root := dataroom(t, map[string]string{"a.pdf": "A", "b.pdf": "B"})
+	h := newHarness(t)
+	h.respond = `{"documents":[kaputt`
+	code, stdout, _ := h.run("documents", "upload", root)
+	if code != 1 {
+		t.Fatalf("Exit 1 erwartet, got %d", code)
+	}
+	var out struct {
+		Failed []map[string]any `json:"failed"`
+	}
+	_ = json.Unmarshal([]byte(stdout), &out)
+	if len(out.Failed) != 2 || out.Failed[0]["may_exist"] != true {
+		t.Errorf("may_exist an beiden Dateien erwartet, got %v", out.Failed)
+	}
+}

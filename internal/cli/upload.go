@@ -817,7 +817,12 @@ func (r *runner) runDocumentsUpload(args []string, flags *flagValues, resolved c
 		}
 		parsed, err := parseUploadResponse(res)
 		if err != nil {
+			// Der Server hat mit 2xx angenommen — gespeichert sein kann
+			// also alles.
 			failBatch(batch, "Antwort des Backends nicht lesbar: "+err.Error())
+			for j := len(report.Failed) - len(batch); j < len(report.Failed); j++ {
+				report.Failed[j].MayExist = true
+			}
 			continue
 		}
 		matcher := newFileMatcher(batch)
