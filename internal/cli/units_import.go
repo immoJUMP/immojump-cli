@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -340,7 +341,21 @@ func (r *runner) runUnitsImport(immobilieID string, flags *flagValues, resolved 
 func (r *runner) failImport(summary importSummary, err error, flags *flagValues) int {
 	summary.Complete = false
 	if raw, marshalErr := output.Marshal(summary); marshalErr == nil {
-		_ = r.render(raw, "application/json", flags)
+		opts := r.outputOptions(flags)
+		if len(opts.Fields) > 0 {
+			// complete (und ambiguous_retry) bleiben, auch wenn --fields sie
+			// nicht nennt: Ohne sie sähe die Teilsumme aus wie die ganze.
+			keep := []string{"complete"}
+			if summary.AmbiguousRetry {
+				keep = append(keep, "ambiguous_retry")
+			}
+			for _, field := range keep {
+				if !slices.Contains(opts.Fields, field) {
+					opts.Fields = append(opts.Fields, field)
+				}
+			}
+		}
+		_, _ = output.Render(r.stdout, raw, "application/json", opts)
 	}
 	return r.fail(err)
 }
