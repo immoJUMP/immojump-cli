@@ -1052,7 +1052,7 @@ var Registry = []Spec{
 			{Name: "batch-mb", Kind: FlagNumber, Desc: "höchstens so viele MB je Request (Default 25; eine größere Datei geht allein)"},
 		},
 		Notes: []string{
-			"Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code.",
+			"Eine einzelne Datei ohne --report: ein Request, Ausgabe wie bisher das Array des Backends (--fields id, .[0].id), Fehler mit ihrem Exit-Code. Scheitern Teile (etwa Mitglieder eines ZIP) oder sind leer, steht das als JSON auf stderr und der Aufruf endet mit Exit 1.",
 			"Ordner, mehrere Dateien oder --report: Ausgabe {uploaded: [{id, dateiname, file}], duplicates: [...], failed: [{file, message}], empty: [...]} — file ist der lokale Pfad.",
 			"Exit 0 nur, wenn nichts fehlgeschlagen ist; sonst Exit 1, der Bericht steht trotzdem auf stdout. Duplikate sind kein Fehler.",
 			"Versteckte Dateien und Ordner (Punkt vorne), .DS_Store, Thumbs.db und desktop.ini bleiben weg — außer, sie sind ausdrücklich genannt.",
