@@ -181,7 +181,9 @@ func TestUpdateReplacesBinary(t *testing.T) {
 }
 
 // TestUpdateLeavesNoTempFiles: Nach einem Update liegt neben dem Binary nichts
-// Halbfertiges herum.
+// Halbfertiges herum. Unter Windows bleibt das alte Binary als .old liegen:
+// Ein laufendes .exe lässt sich umbenennen, aber nicht löschen; das nächste
+// Update räumt es weg (replaceExecutable).
 func TestUpdateLeavesNoTempFiles(t *testing.T) {
 	release := newFakeRelease(t, "v0.10.0", []byte("neu"))
 	u := newUpdateRun(t, "v0.4.0", release)
@@ -192,12 +194,16 @@ func TestUpdateLeavesNoTempFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		var names []string
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		t.Errorf("nur das Binary erwartet, gefunden: %v", names)
+	want := []string{filepath.Base(u.exe)}
+	if runtime.GOOS == "windows" {
+		want = append(want, filepath.Base(u.exe)+".old")
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Errorf("%v erwartet, gefunden: %v", want, names)
 	}
 }
 
