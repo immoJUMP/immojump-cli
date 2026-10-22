@@ -612,7 +612,10 @@ und ändern nie Exit-Code oder stdout:
    `config.json`. Nach dem Befehl wartet der Aufruf höchstens 300 ms auf den
    Abruf, dann endet er ohne Hinweis. Ein Fehlschlag oder ein zu langsamer
    Abruf bleibt still und wird erst am nächsten Tag wiederholt; lässt sich
-   der Stand nicht speichern, unterbleibt der Abruf ganz.
+   der Stand nicht speichern (oder heißt die Konfiguration selbst
+   `update-check.json`), unterbleibt der Abruf ganz. Nach einem
+   gescheiterten Befehl kommt kein Hinweis — die Fehlerzeile bleibt die
+   letzte auf stderr.
 2. **Mindestversion des Servers, für alle.** Das CLI schickt
    `User-Agent: immojump-cli/<version>`; das Backend antwortet mit
    `X-Immojump-Cli-Min-Version`. Liegt die installierte Version darunter,

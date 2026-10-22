@@ -135,7 +135,7 @@ func Run(args []string, opts Options) int {
 	}
 	finishHint := r.startUpdateHint(args)
 	code := r.dispatch(args)
-	finishHint()
+	finishHint(code)
 	return code
 }
 
