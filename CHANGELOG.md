@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.11.0](https://github.com/immoJUMP/immojump-cli/compare/v0.10.0...v0.11.0) (2026-11-04)
+
+
+### Features
+
+* **units:** --soll-rent-from und --planned-sale-date für units create/update ([ab313e7](https://github.com/immoJUMP/immojump-cli/commit/ab313e72d0799fcdc2941af0d53cbb51c9757405))
+* **update:** `immojump update`, täglicher Hinweis am Terminal und Mindestversion des Servers ([c75d16b](https://github.com/immoJUMP/immojump-cli/commit/c75d16bbb0d78e6736dde1cf7205e8e9139c99b2))
+
+
+### Bug Fixes
+
+* **units:** Import-Hilfe verspricht soll_rent_from und planned_sale_date nicht mehr ([ecdb624](https://github.com/immoJUMP/immojump-cli/commit/ecdb6248b1d1562267451cca177181805fcfed9a))
+* **update:** Hinweis überschreibt nie die Konfiguration, kein Hinweis nach Fehlern ([4785934](https://github.com/immoJUMP/immojump-cli/commit/4785934cd8778be7bbdc6ad30a41ea79d1e102ad))
+* **update:** Weiterleitungen nur zur offiziellen Quelle, Hinweis wartet höchstens 300 ms ([c367e62](https://github.com/immoJUMP/immojump-cli/commit/c367e623b23bb8b569260d78db495e8fb3e12ba0))
+
 ## [0.10.0](https://github.com/immoJUMP/immojump-cli/compare/v0.9.0...v0.10.0) (2026-10-22)
 
 
