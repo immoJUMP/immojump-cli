@@ -136,6 +136,14 @@ func TestCommandRequestTable(t *testing.T) {
 			method: "PUT", path: "/api/units/unit/9", body: `{"floor":"DG"}`},
 		{name: "units update löscht die Etage", args: []string{"units", "update", "9", "--set", "floor=null"},
 			method: "PUT", path: "/api/units/unit/9", body: `{"floor":null}`},
+		// Bad und Böden (immo-calc #2327): die Jahreszahl geht als JSON-Zahl raus.
+		{name: "units create mit Bad- und Bodenjahr", args: []string{"units", "create", "5", "--einheit", "WE 4",
+			"--bad-erneuert", "2019", "--boden-erneuert", "2021"},
+			method: "POST", path: "/api/units/unit/5", body: `{"einheit":"WE 4","bad_erneuert":2019,"boden_erneuert":2021}`},
+		{name: "units update setzt das Badjahr", args: []string{"units", "update", "9", "--bad-erneuert", "2015"},
+			method: "PUT", path: "/api/units/unit/9", body: `{"bad_erneuert":2015}`},
+		{name: "units update löscht das Bodenjahr", args: []string{"units", "update", "9", "--set", "boden_erneuert=null"},
+			method: "PUT", path: "/api/units/unit/9", body: `{"boden_erneuert":null}`},
 		{name: "units delete", args: []string{"units", "delete", "9"}, method: "DELETE", path: "/api/units/unit/9"},
 
 		// --- fields (benutzerdefinierte Felder) -----------------------------
