@@ -128,6 +128,14 @@ func TestCommandRequestTable(t *testing.T) {
 			body: `{"einheit":"WE 3","ist_rent":400,"soll_rent":550,"soll_rent_from":"2028-01-01","planned_sale_date":"2029-01-01"}`},
 		{name: "units update löscht den geplanten Verkauf", args: []string{"units", "update", "9", "--set", "planned_sale_date=null"},
 			method: "PUT", path: "/api/units/unit/9", body: `{"planned_sale_date":null}`},
+		// Etage (immo-calc #2324): der Wert geht unverändert raus, das Backend
+		// normalisiert „1.OG“ zu „1. OG“.
+		{name: "units create mit Etage", args: []string{"units", "create", "5", "--einheit", "WE 4", "--floor", "1.OG"},
+			method: "POST", path: "/api/units/unit/5", body: `{"einheit":"WE 4","floor":"1.OG"}`},
+		{name: "units update setzt die Etage", args: []string{"units", "update", "9", "--floor", "DG"},
+			method: "PUT", path: "/api/units/unit/9", body: `{"floor":"DG"}`},
+		{name: "units update löscht die Etage", args: []string{"units", "update", "9", "--set", "floor=null"},
+			method: "PUT", path: "/api/units/unit/9", body: `{"floor":null}`},
 		{name: "units delete", args: []string{"units", "delete", "9"}, method: "DELETE", path: "/api/units/unit/9"},
 
 		// --- fields (benutzerdefinierte Felder) -----------------------------
