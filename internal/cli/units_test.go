@@ -18,6 +18,8 @@ var unitBackendFields = []string{
 	"soll_rent_from", "planned_sale_date",
 	// Etage als eigenes Feld (immo-calc #2324): UG, EG, 1. OG … 30. OG, DG.
 	"floor",
+	// Bad und Böden je Wohnung (immo-calc #2327): Jahr der letzten Erneuerung.
+	"bad_erneuert", "boden_erneuert",
 }
 
 // unitTypes spiegelt das Enum UnitType (immo-calc modules/unit.py). Ein
@@ -206,5 +208,34 @@ func TestUnitsFloorFlagNamesTheCanonicalValues(t *testing.T) {
 	}
 	if flag, _ := findFlag(unitSpec(t, "update"), "floor"); !strings.Contains(flag.Desc, "--set floor=null") {
 		t.Errorf("units update: --floor soll sagen, wie man die Etage löscht: %q", flag.Desc)
+	}
+}
+
+// Bad und Böden je Wohnung (immo-calc #2327): Das Backend nimmt das Jahr der
+// letzten Erneuerung als ganze Zahl zwischen 1800 und dem laufenden Jahr und
+// lehnt ein Datum oder „2015/16“ mit 400 ab. Das Flag ist eine Zahl, damit die
+// Jahreszahl als JSON-Zahl rausgeht, und die Hilfe sagt, wie man leert.
+func TestUnitsRenovationYearFlagsAreYears(t *testing.T) {
+	for _, verb := range []string{"create", "update"} {
+		for _, name := range []string{"bad-erneuert", "boden-erneuert"} {
+			flag, ok := findFlag(unitSpec(t, verb), name)
+			if !ok {
+				t.Fatalf("units %s: --%s fehlt", verb, name)
+			}
+			if flag.Kind != FlagNumber {
+				t.Errorf("units %s: --%s muss eine Zahl sein", verb, name)
+			}
+			for _, term := range []string{"Jahr", "1800", "laufenden Jahr"} {
+				if !strings.Contains(flag.Desc, term) {
+					t.Errorf("units %s: --%s nennt %q nicht: %q", verb, name, term, flag.Desc)
+				}
+			}
+		}
+	}
+	for _, key := range []string{"bad_erneuert", "boden_erneuert"} {
+		flag, _ := findFlag(unitSpec(t, "update"), strings.ReplaceAll(key, "_", "-"))
+		if !strings.Contains(flag.Desc, "--set "+key+"=null") {
+			t.Errorf("units update: --%s soll sagen, wie man das Jahr löscht: %q", flag.Name, flag.Desc)
+		}
 	}
 }

@@ -384,6 +384,11 @@ const einheitentypDesc = "Einheitentyp: wohnen, gewerbe, stellplatz, garage oder
 // („2“) oder „2. Stock“ lehnt das Backend mit 400 ab.
 const etageDesc = "Etage: UG, EG, 1. OG … 30. OG oder DG; das Backend versteht auch „Erdgeschoss“, „1.OG“, „OG 3“, „Souterrain“ (keine bloße Zahl)"
 
+// erneuertDesc beschreibt bad_erneuert/boden_erneuert (immo-calc #2327,
+// _Erneuerungsjahr in modules/schemas/unit_payload_schema.py): ganze Jahreszahl
+// von 1800 bis zum laufenden Jahr, sonst 400.
+const erneuertDesc = "erneuert im Jahr, z. B. 2019 (ganze Zahl von 1800 bis zum laufenden Jahr)"
+
 // unitListFlags sind die Filter beider Einheitenlisten (unit_routes.py,
 // _read_list_filters). --limit steht je Befehl davor, weil die Defaults
 // verschieden sind.
@@ -704,7 +709,7 @@ var Registry = []Spec{
 			{Name: "delimiter", Kind: FlagString, Desc: "CSV-Trennzeichen ; oder , (ohne Angabe: das häufigere in der Kopfzeile)"},
 		},
 		Notes: []string{
-			"Felder je Einheit wie im Backend: extern_id, einheit, type, livingspace, rooms, ist_rent, soll_rent, soll_rent2, note, order, lease_start_date, last_rent_increase_date, soll_rent_from, planned_sale_date, floor, id.",
+			"Felder je Einheit wie im Backend: extern_id, einheit, type, livingspace, rooms, ist_rent, soll_rent, soll_rent2, note, order, lease_start_date, last_rent_increase_date, soll_rent_from, planned_sale_date, floor, bad_erneuert, boden_erneuert, id.",
 			"Erneut ausführen ist sicher: Einheiten mit id oder extern_id werden wiedergefunden und nur geändert, was mitkommt. Zeilen ohne beides legt jeder Lauf neu an.",
 			"Jeder Stapel ist für sich alles oder nichts. Scheitert Stapel k, sind die Stapel davor gespeichert: ihre Summe steht mit complete: false auf stdout, committed_batches in der Fehlerzeile; errors[].index zeigt in die Datei, line auf die Zeile. Nach der Korrektur einfach die ganze Datei erneut importieren.",
 			"Eine id oder extern_id, die in der Datei doppelt steht, bricht vor dem ersten Stapel ab (Exit 11, DUPLICATE_KEY) — ebenso zwei Einträge, die über id und extern_id dieselbe vorhandene Einheit treffen.",
@@ -754,6 +759,8 @@ var Registry = []Spec{
 		Flags: []Flag{
 			{Name: "einheit", Kind: FlagString, Desc: "Bezeichnung, z. B. „WE 2“ oder „EG links“"},
 			{Name: "floor", Kind: FlagString, Desc: etageDesc},
+			{Name: "bad-erneuert", Kind: FlagNumber, Desc: "Bad zuletzt " + erneuertDesc},
+			{Name: "boden-erneuert", Kind: FlagNumber, Desc: "Böden zuletzt " + erneuertDesc},
 			{Name: "type", Kind: FlagString, Desc: einheitentypDesc + " (ohne Angabe: wohnen)"},
 			{Name: "livingspace", Kind: FlagNumber, Desc: "Fläche in m²; bei Garage und Stellplatz 0"},
 			{Name: "rooms", Kind: FlagNumber, Desc: "Zimmerzahl, z. B. 2.5"},
@@ -772,6 +779,8 @@ var Registry = []Spec{
 		Body: []FlagBody{
 			{Flag: "einheit", Key: "einheit"},
 			{Flag: "floor", Key: "floor"},
+			{Flag: "bad-erneuert", Key: "bad_erneuert"},
+			{Flag: "boden-erneuert", Key: "boden_erneuert"},
 			{Flag: "type", Key: "type"},
 			{Flag: "livingspace", Key: "livingspace"},
 			{Flag: "rooms", Key: "rooms"},
@@ -797,6 +806,8 @@ var Registry = []Spec{
 		Flags: []Flag{
 			{Name: "einheit", Kind: FlagString, Desc: "Bezeichnung, z. B. „WE 1“"},
 			{Name: "floor", Kind: FlagString, Desc: etageDesc + " (löschen: --set floor=null)"},
+			{Name: "bad-erneuert", Kind: FlagNumber, Desc: "Bad zuletzt " + erneuertDesc + " (löschen: --set bad_erneuert=null)"},
+			{Name: "boden-erneuert", Kind: FlagNumber, Desc: "Böden zuletzt " + erneuertDesc + " (löschen: --set boden_erneuert=null)"},
 			{Name: "type", Kind: FlagString, Desc: einheitentypDesc},
 			{Name: "livingspace", Kind: FlagNumber, Desc: "Fläche in m²; bei Garage und Stellplatz 0"},
 			{Name: "rooms", Kind: FlagNumber, Desc: "Zimmerzahl"},
@@ -817,6 +828,8 @@ var Registry = []Spec{
 		Body: []FlagBody{
 			{Flag: "einheit", Key: "einheit"},
 			{Flag: "floor", Key: "floor"},
+			{Flag: "bad-erneuert", Key: "bad_erneuert"},
+			{Flag: "boden-erneuert", Key: "boden_erneuert"},
 			{Flag: "type", Key: "type"},
 			{Flag: "livingspace", Key: "livingspace"},
 			{Flag: "rooms", Key: "rooms"},
