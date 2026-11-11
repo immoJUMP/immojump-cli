@@ -16,6 +16,8 @@ var unitBackendFields = []string{
 	// Prognose (immo-calc #2151/#2157): ab wann die Soll-Miete gilt, und der
 	// geplante Einzelverkauf zum Monatsende.
 	"soll_rent_from", "planned_sale_date",
+	// Etage als eigenes Feld (immo-calc #2324): UG, EG, 1. OG … 30. OG, DG.
+	"floor",
 }
 
 // unitTypes spiegelt das Enum UnitType (immo-calc modules/unit.py). Ein
@@ -181,5 +183,28 @@ func TestUnitsCreateOrderAppendsByDefault(t *testing.T) {
 func TestUnitsDeleteNamesTheLastUnitRule(t *testing.T) {
 	if summary := unitSpec(t, "delete").Summary; !strings.Contains(summary, "letzte") {
 		t.Errorf("units delete soll sagen, dass die letzte Einheit bleibt: %q", summary)
+	}
+}
+
+// Die Etage speichert das Backend kanonisch (immo-calc #2324) und lehnt eine
+// bloße Zahl oder „2. Stock“ mit 400 ab. Die Hilfe nennt die Werte, sonst rät
+// der Agent „2“ oder schreibt die Etage weiter in --einheit.
+func TestUnitsFloorFlagNamesTheCanonicalValues(t *testing.T) {
+	for _, verb := range []string{"create", "update"} {
+		flag, ok := findFlag(unitSpec(t, verb), "floor")
+		if !ok {
+			t.Fatalf("units %s: --floor fehlt", verb)
+		}
+		if flag.Kind != FlagString {
+			t.Errorf("units %s: --floor muss Text sein, das Backend lehnt Zahlen ab", verb)
+		}
+		for _, term := range []string{"UG", "EG", "1. OG", "30. OG", "DG", "Erdgeschoss", "1.OG"} {
+			if !strings.Contains(flag.Desc, term) {
+				t.Errorf("units %s: --floor nennt %q nicht: %q", verb, term, flag.Desc)
+			}
+		}
+	}
+	if flag, _ := findFlag(unitSpec(t, "update"), "floor"); !strings.Contains(flag.Desc, "--set floor=null") {
+		t.Errorf("units update: --floor soll sagen, wie man die Etage löscht: %q", flag.Desc)
 	}
 }
