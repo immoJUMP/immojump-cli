@@ -584,7 +584,7 @@ Einheiten aus einer Mieterliste anlegen oder aktualisieren (in Stapeln, Abgleich
   - `--delimiter <wert>` — CSV-Trennzeichen ; oder , (ohne Angabe: das häufigere in der Kopfzeile)
 - **Body:** `{units: [...], dry_run}` in Stapeln zu höchstens 500, gebaut aus `--file` (NDJSON, JSON-Array oder CSV).
 - **Details:**
-  - Felder je Einheit wie im Backend: extern_id, einheit, type, livingspace, rooms, ist_rent, soll_rent, soll_rent2, note, order, lease_start_date, last_rent_increase_date, id.
+  - Felder je Einheit wie im Backend: extern_id, einheit, type, livingspace, rooms, ist_rent, soll_rent, soll_rent2, note, order, lease_start_date, last_rent_increase_date, soll_rent_from, planned_sale_date, id.
   - Erneut ausführen ist sicher: Einheiten mit id oder extern_id werden wiedergefunden und nur geändert, was mitkommt. Zeilen ohne beides legt jeder Lauf neu an.
   - Jeder Stapel ist für sich alles oder nichts. Scheitert Stapel k, sind die Stapel davor gespeichert: ihre Summe steht mit complete: false auf stdout, committed_batches in der Fehlerzeile; errors[].index zeigt in die Datei, line auf die Zeile. Nach der Korrektur einfach die ganze Datei erneut importieren.
   - Eine id oder extern_id, die in der Datei doppelt steht, bricht vor dem ersten Stapel ab (Exit 11, DUPLICATE_KEY) — ebenso zwei Einträge, die über id und extern_id dieselbe vorhandene Einheit treffen.
