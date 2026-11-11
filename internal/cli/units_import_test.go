@@ -597,3 +597,25 @@ func TestUnitsImportRejectsIDAndExternIDOfTheSameUnit(t *testing.T) {
 		t.Errorf("Eintrag 2 (Zeile 3) auf Einheit U erwartet, got %v", entry)
 	}
 }
+
+// TestUnitsImportHelpNamesEveryBackendField: Die Hilfe zählt die Felder auf,
+// die ein Agent je Zeile mitgeben darf. Fehlt eines, lässt er es weg —
+// so standen soll_rent_from und planned_sale_date seit ecdb624 nicht mehr
+// drin, weil die Bulk-Anlage im Backend sie bis 11/2026 verwarf.
+func TestUnitsImportHelpNamesEveryBackendField(t *testing.T) {
+	spec := unitSpec(t, "import")
+	var felder string
+	for _, note := range spec.Notes {
+		if strings.HasPrefix(note, "Felder je Einheit") {
+			felder = note
+		}
+	}
+	if felder == "" {
+		t.Fatal("units import: Hinweis „Felder je Einheit …“ fehlt")
+	}
+	for _, field := range append([]string{"extern_id", "id"}, unitBackendFields...) {
+		if !strings.Contains(felder, " "+field+",") && !strings.Contains(felder, " "+field+".") {
+			t.Errorf("units import: Hilfe nennt das Feld %q nicht:\n%s", field, felder)
+		}
+	}
+}
